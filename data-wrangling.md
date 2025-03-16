@@ -1,7 +1,7 @@
 JSC370 Midterm Project - Part 1: Data Wrangling
 ================
 Lucie Yang
-March 15, 2025
+March 16, 2025
 
 This file includes all the work for data acquisition, preprocessing, and
 wrangling.
@@ -15,7 +15,7 @@ to be made first, then get the API key. Set it with
 ``` r
 auth_token <- Sys.getenv("API_KEY")
 
-call_yelp_api <- function(offset, category) {
+call_yelp_api <- function(offset = 0, category) {
     response <- GET(
       url   = "https://api.yelp.com/v3/businesses/search",
       query = list(
@@ -175,10 +175,6 @@ dim(restaurants)
 ```
 
 ``` r
-summary(restaurants)
-```
-
-``` r
 str(restaurants)
 ```
 
@@ -191,14 +187,41 @@ tail(restaurants)
 ```
 
 ``` r
-colSums(is.na(restaurants))
+summary(restaurants)
+```
+
+Restaurants with no reviews (and hence 0 rating) are uninformative and
+will skew the analysis.
+
+``` r
+dim(restaurants %>% filter(review_count == 0))
+dim(restaurants %>% filter(rating == 0))
+```
+
+There are 703 of these, which is around 10% of the data. They are
+removed.
+
+``` r
+restaurants <- restaurants %>% 
+  filter(review_count != 0)
 ```
 
 Looking at the `is_closed` attribute, it is FALSE for all restaurants.
-It is not informative, so I will remove it.
+It is not informative, so tehy are removed.
 
 ``` r
 table(restaurants$is_closed)
+```
+
+``` r
+restaurants <- restaurants %>% 
+  select(-is_closed)
+```
+
+Check null values in each column.
+
+``` r
+colSums(is.na(restaurants))
 ```
 
 Look at which restaurants have missing latitude or longitude
@@ -208,12 +231,56 @@ restaurants %>%
   filter(is.na(latitude) | is.na(longitude))
 ```
 
-Remove them, since there are only 6, and location is important to the
-analysis
+Five of the six are food stands or food trucks, which possibly do not
+have a fixed address. Remove them, since there are only 6, and location
+is important to the analysis
 
 ``` r
 restaurants <- restaurants %>% 
   filter(!is.na(latitude) &  !is.na(longitude))
+```
+
+Group into neighbourhoods, using shapefile from [Toronto Open
+Data](https://open.toronto.ca/dataset/neighbourhoods/).
+
+``` r
+neighbourhoods <- st_read("data/neighbourhoods/neighbourhoods.shp")
+
+restaurants_sf <- st_as_sf(restaurants, coords = c("longitude", "latitude"), crs = 4326)
+neighbourhoods <- st_transform(neighbourhoods, crs = st_crs(restaurants_sf)) # use same CRS
+
+restaurants_sf <- st_join(restaurants_sf, neighbourhoods, left = TRUE) # spatial join
+rest_neighbourhoods <- restaurants_sf %>% 
+  st_drop_geometry() %>% 
+  select(id, AREA_SH5, AREA_NA7) 
+```
+
+Join neighbourhoods with the original data (to preserve original
+latitude and longitude attributes), and select only relevant columns.
+
+``` r
+restaurants <- restaurants %>% 
+  left_join(rest_neighbourhoods, by = join_by(id)) %>% 
+  rename(neigh_id = AREA_SH5, neighbourhood = AREA_NA7)
+```
+
+From the latitude and longitude summary earlier, it appeared there may
+be some restaurants not in Toronto. This is now easy to check against
+the neighbourhood data!
+
+``` r
+restaurants %>% 
+  filter(is.na(neighbourhood)) %>% 
+  arrange(distance)
+```
+
+From manually searching some on Google Maps, it indeed appears that they
+range from being in Mississauga to being in New York! Remove them (585)
+from the dataset.
+
+``` r
+restaurants <- restaurants %>% 
+  filter(!is.na(neighbourhood))
 ```
 
 ``` r
@@ -273,6 +340,16 @@ restaurants <- restaurants %>%
   )
 ```
 
+I also extract the first category for each restaurant
+
+``` r
+restaurants <- restaurants %>% 
+  mutate(
+    first_category = str_split(categories, ",") %>%
+            sapply(function(x) x[1])
+  )
+```
+
 View the distribution of the broader categories.
 
 ``` r
@@ -293,31 +370,23 @@ restaurants %>%
   filter(cuisine == "Other")
 ```
 
-Group into neighbourhoods, using shapefile from [Toronto Open
-Data](https://open.toronto.ca/dataset/neighbourhoods/).
+As a proxy measure for authenticity of the restaurant, I include a count
+of the number of restaurants with the same name.
 
 ``` r
-neighbourhoods <- st_read("data/neighbourhoods/neighbourhoods.shp")
-
-restaurants_sf <- st_as_sf(restaurants, coords = c("longitude", "latitude"), crs = 4326)
-neighbourhoods <- st_transform(neighbourhoods, crs = st_crs(restaurants_sf)) # use same CRS
-
-restaurants_sf <- st_join(restaurants_sf, neighbourhoods, left = TRUE) # spatial join
-rest_neighbourhoods <- restaurants_sf %>% 
-  st_drop_geometry() %>% 
-  select(id, AREA_SH5, AREA_NA7) 
+restaurants <- restaurants %>%
+  group_by(name) %>%
+  mutate(name_count = n()) %>%
+  ungroup()
 ```
 
-Join neighbourhoods with the original data (to preserve original
-latitude and longitude attributes), and select only relevant columns.
+Select useful/relevant variables.
 
 ``` r
 restaurants <- restaurants %>% 
-  left_join(rest_neighbourhoods, by = join_by(id)) %>% 
-  select(id, name, categories, latitude, longitude,
-         price_level, rating, review_count, distance,
-         type, cuisine, AREA_SH5, AREA_NA7) %>% 
-  rename(neigh_id = AREA_SH5, neighbourhood = AREA_NA7)
+  select(id, name, categories, latitude, longitude, price_level,
+         rating, review_count, distance, neigh_id, neighbourhood,
+         type, cuisine, first_category, name_count)
 ```
 
 Export as csv for next steps (for convenience, so I no longer need to
