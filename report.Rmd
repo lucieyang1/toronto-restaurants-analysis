@@ -202,7 +202,8 @@ kable(by_num, digits = 3, caption = "**Table 1.** Summary statistics for top 10 
 quantiles <- quantile(neighbourhoods$num_restaurants, 
                       probs = seq(0, 1, length.out = 6), 
                       na.rm = TRUE)
-
+# leaflegend
+# addLegendQuantile
 pal <- colorBin(
   palette = c("#E1F5C4", "#EDE574", "#F9D423", "#FC913A", "#FF4E50"),
   bins = quantiles,
@@ -222,7 +223,7 @@ neighbourhoods %>%
     addLegend(
       pal = pal,
       values = neighbourhoods$num_restaurants,
-      title = "Number of Restaurants",
+      title = "Number of Restaurants<br>(by Quintiles)",
       position = 'bottomright',
     )
 ```
@@ -270,7 +271,7 @@ neighbourhoods %>%
     addLegend(
       pal = pal,
       values = neighbourhoods$rating_mean,
-      title = "Average Rating",
+      title = "Average Rating<br>(by Quintiles)",
       position = 'bottomright',
     )
 ```
@@ -405,16 +406,18 @@ kable(summary(anova_result)[[1]], digits = 3,
 ```
 
 ### Relationships between Rating and Numeric Variables
-For numeric variables, I plot the correlation matrix in **Figure 8**, which shows that distance has a weak negative correlation with rating and review count and suggests that as distance increases, ratings slightly decrease, but the effect is very small. There is no correlation between review count and rating. This is further explored with the scatter plots in **Figure 9**, which do not show any clear trends for either distance nor review count with rating.
-```{r fig.height=4, fig.width=4, fig.cap="**Figure 8.** Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
+For numeric variables, I plot the correlation matrix in **Figure 8**, which shows that distance has a weak negative correlation with rating and review count and suggests that as distance increases, ratings slightly decrease, but the effect is very small. Additionally, there are weak positive correlations between longitude and distance, review count, and latitude. There is a strong positive correlation between latitude and distance, suggesting there is collinearity and only one of latitude or distance should be included in a model. There is no correlation between rating and any of the following variables: review count, latitude, or longitude. 
+
+This is further explored with the scatter plots in **Figure 9**, which do not show any clear trends for dsitance, review count, longitude, or latitude with rating.
+```{r fig.height=5, fig.width=5, fig.cap="**Figure 8.** Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
 restaurants_num <- restaurants %>% 
-  select(rating, distance, review_count)
+  select(rating, distance, review_count, longitude, latitude)
 corr <- round(cor(restaurants_num), 1)
 p.mat <- cor_pmat(restaurants_num)
 ggcorrplot(corr, lab = TRUE, p.mat = p.mat, outline.col = "white")
 ```
 
-```{r scatters, fig.cap="**Figure 9.** Review Count & Distance vs Rating"}
+```{r scatters, fig.cap="**Figure 9.** Review Count, Distance, Longitude and Latitude vs Rating"}
 review_plot <- restaurants %>% 
   ggplot(aes(x = review_count, y = rating)) +
   geom_point(alpha = 0.3, color = "#FF4E50") +
@@ -433,10 +436,28 @@ distance_plot <- restaurants %>%
   theme_light() +
   theme(plot.title = element_text(face = "bold"))
 
-grid.arrange(review_plot, distance_plot, ncol = 2)
+longitude_plot <- restaurants %>% 
+  ggplot(aes(x = longitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "lightgreen") +
+  labs(title = "Longitude",
+       x = "Longitude",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+latitude_plot <- restaurants %>% 
+  ggplot(aes(x = latitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "skyblue") +
+  labs(title = "Latitude",
+       x = "Latitude",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(review_plot, distance_plot, longitude_plot, latitude_plot, ncol = 2)
 ```
 # Summary
-The preliminary results suggest that there are large skews and imbalances within each variable. Moreover, although no clear spatial clustering of ratings by neighbourhood is observed, ANOVA tests suggest statistically significant differences in ratings across neighborhoods. Smaller restaurant chains and higher price levels correspond to higher ratings, though restaurants with unknown price levels rank the highest. Bistros, cafés and bakeries, and international and Middle Eastern cuisine receive the highest ratings, while diners, fast food, and North American cuisine rank the lowest. ANOVA tests indicate significant differences across all categorical variables. Numeric variables show weak negative correlations with ratings. Overall, smaller, pricier restaurants, and certain restaurant types and cuisines tend to have higher ratings, supporting the original hypothesis, while location, distance, and review count play a limited role.
+The preliminary results suggest that there are large skews and imbalances within each variable. Moreover, although no clear spatial clustering of ratings by neighbourhood is observed, ANOVA tests suggest statistically significant differences in ratings across neighborhoods. Smaller restaurant chains and higher price levels correspond to higher ratings, though restaurants with unknown price levels rank the highest. Bistros, cafés and bakeries, and international and Middle Eastern cuisine receive the highest ratings, while diners, fast food, and North American cuisine rank the lowest. ANOVA tests indicate significant differences across all categorical variables. Numeric variables show weak negative correlations with ratings. Overall, smaller, pricier restaurants, and certain restaurant types and cuisines tend to have higher ratings, supporting the original hypothesis, while location (longitude and latitude), distance, and review count play a limited role.
 
 Next, I will perform predictive modelling with regression to quantify the impact of these factors on restaurant rating. I will start by fitting a linear regression model with all of the predictors as a baseline, and refine it using All Possible Subsets Selection to choose a final linear regression model. Because of the skewed variables, I will experiment with different transformations for the linear regressions. Then, I will fit tree-based regression models, including a regression tree, a random forest, and XGBoost, tuning hyperparameters for each model. The performance of each model will be evaluated with R-squared and RMSE, with results compared across all models. I will also use the models to determine variable importances. These steps will provide insights to the research question.
 
