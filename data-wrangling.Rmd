@@ -84,7 +84,7 @@ categories = c('afghani', 'african', 'arabian', 'argentine', 'armenian',
 length(categories)
 ```
 
-Due to limitations of the Yelp API (only 50 results for each query, and only 240 results for the same query), I ran each category in batches with offsets to get the maximum results properly without overlap.
+Due to limitations of the Yelp API (only 50 results for each query, and only 240 results for the same query), I ran each category over at most 5 iterations with offsets to get the maximum results properly without overlap.
 ```{r, eval = FALSE}
 businesses_list <- list()
 for (category in categories) {
@@ -105,7 +105,6 @@ for (category in categories) {
     for (i in seq_along(response_list$businesses)) {
       business <- response_list$businesses[[i]]
     
-      # Extract the necessary fields and flatten the nested structure
       business_data <- data.frame(
         id = business$id,
         name = business$name,
@@ -129,7 +128,6 @@ for (category in categories) {
         url = ifelse(!is.null(business$url), business$url, NA)
       )
       
-      # Add the extracted data for this business to the list
       businesses_list <- append(businesses_list, list(business_data))
     }
     
@@ -141,10 +139,8 @@ for (category in categories) {
   }
 }
 
-# Combine all the results into one data frame
 restaurants <- do.call(rbind, businesses_list)
 
-# View the final data frame
 print(restaurants)
 ```
 
@@ -321,7 +317,7 @@ restaurants <- restaurants %>%
   )
 ```
 
-There are way too many categories to work with, and the first category may not be the most relevant category. So, I won't use this.
+There are way too many categories to work with, and the first category may not be the most relevant category. So, I probably won't use this.
 ```{r}
 length(unique(restaurants$first_category))
 ```
