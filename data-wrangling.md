@@ -1,7 +1,7 @@
 JSC370 Midterm Project - Part 1: Data Wrangling
 ================
 Lucie Yang
-March 16, 2025
+March 17, 2025
 
 This file includes all the work for data acquisition, preprocessing, and
 wrangling.
@@ -16,27 +16,28 @@ to be made first, then get the API key. Set it with
 auth_token <- Sys.getenv("API_KEY")
 
 call_yelp_api <- function(offset = 0, category) {
-    response <- GET(
-      url   = "https://api.yelp.com/v3/businesses/search",
-      query = list(
-        location = 'Toronto, ON',
-        term = 'restaurants',
-        limit = 50,
-        offset = offset,
-        categories = category
-        ),
-        add_headers(
-        'accept' = 'application/json',
-        'authorization' = paste('Bearer', auth_token)
-      )
+  response <- GET(
+    url   = "https://api.yelp.com/v3/businesses/search",
+    query = list(
+      location = 'Toronto, ON',
+      term = 'restaurants',
+      limit = 50,
+      offset = offset,
+      categories = category
+      ),
+    add_headers(
+      'accept' = 'application/json',
+      'authorization' = paste('Bearer', auth_token)
     )
+  )
     
-    if (status_code(response) == 200) {
-      return(httr::content(response))
-    } else {
-      warning(paste("Error with status code:", status_code(response), httr::content(response)))
-      return(NULL)  
-    }
+  if (status_code(response) == 200) {
+    return(httr::content(response))
+  } else {
+    warning(paste("Error with status code:", status_code(response), 
+                  httr::content(response)))
+    return(NULL)  
+  }
 }
 ```
 
@@ -206,12 +207,8 @@ restaurants <- restaurants %>%
   filter(review_count != 0)
 ```
 
-Looking at the `is_closed` attribute, it is FALSE for all restaurants.
-It is not informative, so tehy are removed.
-
-``` r
-table(restaurants$is_closed)
-```
+Looking at the `is_closed` attribute in the summary, it is FALSE for all
+restaurants. It is not informative, so it will be removed.
 
 ``` r
 restaurants <- restaurants %>% 
@@ -287,7 +284,7 @@ restaurants <- restaurants %>%
 table(restaurants$price)
 ```
 
-Put into more understandable price levels
+Convert price into a factor and more understandable price levels
 
 ``` r
 restaurants <- restaurants %>% 
@@ -296,8 +293,10 @@ restaurants <- restaurants %>%
       price == "$" ~ "Low",
       price == "$$" ~ "Medium",
       price == "$$$" ~ "High",
-      price == "$$$$" ~ "Extra High"
-    )
+      price == "$$$$" ~ "Very High"
+    ),
+    price_level = factor(price_level, 
+                         levels = c("Low", "Medium", "High", "Very High"))
   )
 ```
 
@@ -350,6 +349,13 @@ restaurants <- restaurants %>%
   )
 ```
 
+There are way too many categories to work with, and the first category
+may not be the most relevant category. So, I won’t use this.
+
+``` r
+length(unique(restaurants$first_category))
+```
+
 View the distribution of the broader categories.
 
 ``` r
@@ -380,13 +386,126 @@ restaurants <- restaurants %>%
   ungroup()
 ```
 
+Check for outliers in numeric variables
+
+``` r
+par(mfrow=c(2, 2))
+boxplot(restaurants$rating, main = "Rating")
+boxplot(restaurants$review_count, main = "Review Count")
+boxplot(restaurants$distance, main = "Distance")
+boxplot(restaurants$name_count, main = "Same Name Count")
+```
+
+Closer look at outliers based on boxplots: Rating has 112 outliers, but
+looks like reasonable observations (poor quality restaurants or low
+number of reviews), so will be left in
+
+``` r
+Q1 <- quantile(restaurants$rating, 0.25)
+Q3 <- quantile(restaurants$rating, 0.75)
+IQR <- Q3 - Q1
+
+lower_bound <- Q1 - 1.5 * IQR
+outliers <- restaurants %>% 
+  filter(rating < lower_bound)
+
+outliers
+```
+
+Review Count has 554 outliers, but looks like reasonable observations
+(just popular restaurants?), so will be left in
+
+``` r
+Q1 <- quantile(restaurants$review_count, 0.25)
+Q3 <- quantile(restaurants$review_count, 0.75)
+IQR <- Q3 - Q1
+
+upper_bound <- Q3 + 1.5 * IQR
+outliers <- restaurants %>% 
+  filter(review_count > upper_bound)
+
+outliers
+```
+
+Distance has 123 outliers, but we already checked these are in Toronto,
+so will be left in
+
+``` r
+Q1 <- quantile(restaurants$distance, 0.25)
+Q3 <- quantile(restaurants$distance, 0.75)
+IQR <- Q3 - Q1
+
+upper_bound <- Q3 + 1.5 * IQR
+outliers <- restaurants %>% 
+  filter(distance > upper_bound)
+
+outliers
+```
+
+Same name count has 1067 outliers, but it looks like every restaurant
+with more than one restaurant with the same name is considered an
+outlier.
+
+``` r
+Q1 <- quantile(restaurants$name_count, 0.25)
+Q3 <- quantile(restaurants$name_count, 0.75)
+IQR <- Q3 - Q1
+
+upper_bound <- Q3 + 1.5 * IQR
+outliers <- restaurants %>% 
+  filter(name_count > upper_bound)
+
+outliers
+```
+
+Taking a closer look at the very skewed variables
+
+``` r
+par(mfrow = c(1, 2))
+hist(restaurants$review_count)
+hist(restaurants$name_count)
+```
+
+Filter restaurants that have at least 3 reviews, so that the rating is
+more reliable
+
+``` r
+restaurants <- restaurants %>% 
+  filter(review_count >= 3)
+```
+
+Change the name_count variable to categories since most of them are 1.
+
+``` r
+restaurants <- restaurants %>% 
+  mutate(
+    size_level = case_when (
+      name_count == 1 ~ "Single Location",
+      name_count <= 3 ~ "Small Chain",
+      name_count <= 10 ~ "Medium Chain",
+      TRUE ~ "Large Chain"
+    ),
+    size_level = factor(size_level, 
+                         levels = c("Single Location", "Small Chain", 
+                                    "Medium Chain", "Large Chain"))
+  )
+```
+
+``` r
+table(restaurants$size_level)
+```
+
 Select useful/relevant variables.
 
 ``` r
 restaurants <- restaurants %>% 
-  select(id, name, categories, latitude, longitude, price_level,
+  select(id, name, latitude, longitude, price_level,
          rating, review_count, distance, neigh_id, neighbourhood,
-         type, cuisine, first_category, name_count)
+         type, cuisine, size_level)
+```
+
+``` r
+dim(restaurants)
 ```
 
 Export as csv for next steps (for convenience, so I no longer need to

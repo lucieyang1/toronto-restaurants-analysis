@@ -1,0 +1,447 @@
+---
+title: 'Analyzing Toronto’s Restaurant Ratings: The Role of Location, Price, and Other
+  Factors'
+author: "Lucie Yang"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_document:
+    fig_width: 10
+    fig_height: 4
+    theme: readable
+link-citations: true
+subtitle: "**Github**: https://github.com/lucieyang1/toronto-restaurants-analysis"
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
+library(data.table)
+library(tidyverse)
+library(knitr)
+library(httr)
+library(sf)
+library(ggplot2)
+library(gridExtra)
+library(leaflet)
+library(ggcorrplot)
+```
+
+```{css, echo = FALSE}
+caption {
+      color: black;
+    }
+```
+
+```{r}
+restaurants <- read.csv("data/cleaned_restaurants.csv") # from `data-wrangling.Rmd`
+```
+
+```{r}
+restaurants <- restaurants %>% 
+  mutate(
+    price_level = factor(price_level, 
+                         levels = c("Low", "Medium", "High", "Very High")),
+    size_level = factor(size_level, 
+                         levels = c("Single Location", "Small Chain", 
+                                    "Medium Chain", "Large Chain"))
+  )
+```
+
+# Introduction
+As a city with a vibrant and culturally diverse population, Toronto’s food scene features a wide variety of cuisines from around the world, ranging from fast food to family-owned cafes and fine dining restaurants. With thousands of restaurants across the city, online ratings on platforms like Yelp can have a strong influence on the decisions of individuals, as well as the marketing and operational decision-making of the business owners. Using restaurant data from Yelp, I aim to investigate the research question: *How do key factors, such as location, price, categories, authenticity and review count, contribute to the rating of a restaurant?*
+
+A study of restaurant inspection results in 2017 and 2018 in Toronto suggested that there are significant geospatial clustering patterns in restaurant quality, with hotspots of high infraction rates in North York and on the eastern shoreline [@ng2020spatial]. Moreover, a 2000 study of 63 restaurants in Toronto found that features that correlated with upscale restaurants had a positive effect on customer ratings [@susskind2000]. An Australian study identified that cuisines had differing reputations, with European cuisines associated with a higher reputation [@fogarty2012]. Additionally, a 2013 study in the United States suggested that restaurants perceived as more authentic received higher ratings, with chain restaurants viewed as less authentic than family-owned establishments [@kovacs2014authenticity]. These related studies motivated the inclusion of several variables in this study and suggest the following hypothesis: locations identified as infraction hotspots are expected to have lower ratings, while factors such as higher prices, European cuisine, and greater authenticity are anticipated to correlate with higher ratings. 
+
+# Methods
+
+The original dataset was extracted from the Yelp Fusion API [@yelp_api] and consisted of 6167 restaurants with 14 attributes, including average user rating, longitude, latitude, distance from the center of Toronto (defined as <43.64547, -79.42223>), a list of categories, review count, and user-rated price level. The business search API was used with the location set to ‘Toronto, ON’ and the term ‘restaurants’. Due to API limitations that only return the 240 “best match” results per query, the search was conducted independently over 134 selected categories and then combined into a single dataset. A neighbourhood attribute was added based on the longitude and latitude of restaurants through a spatial join with a neighbourhood dataset from Toronto Open Data [@neighbourhoods].
+
+The data was cleaned by removing erroneous and uninformative observations: restaurants with less than 3 reviews (so that the rating is less noisy or biased), restaurants with missing latitude and longitude (since location is important to the analysis), and restaurants not in Toronto (based on the boundaries from the neighbourhood dataset). The price level was converted into a factor with more interpretable levels, and categories were grouped into broader categories of restaurant type and cuisine (grouped by region). A variable representing categories of chain size was made, based on counts of the number of restaurants in Toronto with the same name. After cleaning, there were 3985 restaurants in the dataset and 13 variables.
+
+```{r}
+# variables <- data.frame(
+#   Variable = c("id", "name", "latitude", "longitude", "price level", "rating", 
+#                "review count", "distance", "neighbourhood id", "neighbourhood", 
+#                "type", "cuisine", "size level"),
+#   Description = c("Unique identifier for the restaurant on Yelp", 
+#                   "Name of the restaurant", 
+#                   "Latitude coordinate of the restaurant", 
+#                   "Longitude coordinate of the restaurant", 
+#                   "User-rated price level (Low, Medium, High, Very High) of the restaurant on Yelp", 
+#                   "Average user rating of the restaurant (1 to 5) on Yelp", 
+#                   "Total number of reviews for the restaurant", 
+#                   "Distance from the center of Toronto (43.64547, -79.42223)", 
+#                   "Neighborhood ID from the City of Toronto", 
+#                   "Name of the neighborhood where the restaurant is located", 
+#                   "Type of restaurant (13 categories - e.g., Cafe/Bakery, Bars)", 
+#                   "Cuisine type based on region (10 categories - e.g., East Asian, European)", 
+#                   "Category (Single Location, Small Chain, Medium Chain, Large Chain) based on the number of restaurants with the same name")
+# )
+# 
+# kable(variables, caption = "**Table 1.** Description of Cleaned Restaurant Data Variables")
+```
+
+To explore the data, summary statistics were calculated over select categorical variables, and multiple plots were created: the distributions of each variable; relationships between each variable and the target variable, rating; and maps showing the spatial distribution of the variables.
+
+# Preliminary Results
+### Distributions of Variables
+First, the distribution of rating, review count, distance, size level, and price level were plotted in **Figure 1**, which shows that ratings are left-skewed, while review count and distance are right-skewed. Moreover, most of the restaurants are single locations, while most of the known price levels are in the medium category. 
+
+```{r distributions, fig.cap="**Figure 1.** Distribution of rating, review count, distance, size level, and price level"}
+rest_bar <- restaurants %>% 
+  mutate(
+    size_level = case_when(
+      size_level == "Single Location" ~ "Single", 
+      size_level == "Small Chain" ~ "Small",
+      size_level == "Medium Chain" ~ "Medium", 
+      size_level == "Large Chain" ~ "Large"),
+    size_level = factor(size_level, 
+                        levels = c("Single", "Small", "Medium", "Large"))
+  )
+
+par(mar = c(5, 4, 2, 1))
+layout(matrix(c(1, 2, 3, 
+                1, 4, 5), 
+              nrow = 2, 
+              byrow = TRUE))
+hist(restaurants$rating,
+    main = "Distribution of Rating",
+    xlab = "Rating",
+    ylab = "Count",
+    col = "salmon")
+hist(restaurants$review_count,
+    main = "Distribution of Review Count",
+    xlab = "Review Count",
+    ylab = "Count",
+    col = "skyblue")
+hist(restaurants$distance,
+    main = "Distribution of Distance\nfrom Toronto Center",
+    xlab = "Distance (m)",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(rest_bar$size_level),
+    main = "Distribution of Chain Size Levels",
+    xlab = "Number of Restaurants",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(restaurants$price_level),
+    main = "Distribution of Price Levels",
+    xlab = "Price Level",
+    ylab = "Count",
+    col = "skyblue"
+    # cex.names = 0.8
+    )
+```
+
+The distribution of the broader categories of restaurant type and cuisine in **Figure 2** reveals that a large number of restaurants were uncategorized by type and cuisine. It also showed that of the categorized restaurants, there was the highest number of bars and east Asian restaurants.
+
+```{r categories, fig.cap="**Figure 2.** Distribution of restaurant type and cuisine"}
+type_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(type, type, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Distribution of Restaurant Type",
+       x = "Restaurant Type",
+       y = "Count") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+cuisine_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(cuisine, cuisine, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Distribution of Cuisine",
+       x = "Cuisine",
+       y = "Count") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(type_plot, cuisine_plot, ncol = 2)
+```
+
+### Distribution of Restaurants and Ratings by Neighbourhood
+Then, to investigate the distribution of restaurants and their ratings by neighbourhood, I summarize numeric variables by neighbourhood and plot their spatial distributions. As shown in the summary statistics of the top 10 neighbourhoods by restaurant count, in **Table 1**, the Kensington-Chinatown neighbourhood has the highest number of restaurants, at 297, followed by the Yonge-Bay Corridor and the Wellington Place neighbourhoods. The distribution on the map in **Figure 3** suggests that neighbourhoods in the downtown area have the highest number of restaurants.
+
+```{r}
+summary_table <- restaurants %>%
+  group_by(neighbourhood) %>%
+  summarize(
+    num_restaurants = n(),
+    rating_mean = mean(rating),
+    review_count_mean = mean(review_count),
+  )
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+neighbourhoods <- st_read("data/neighbourhoods/neighbourhoods.shp")
+neighbourhoods <- neighbourhoods %>%
+  left_join(summary_table, by = join_by(AREA_NA7 == neighbourhood)) %>% 
+  mutate(num_restaurants = replace_na(num_restaurants, 0)) %>% 
+  rename(neighbourhood = AREA_NA7)
+```
+
+```{r}
+by_num <- summary_table %>%
+  arrange(desc(num_restaurants)) %>%
+  slice_head(n = 10) %>%
+  rename(
+    `Neighbourhood` = neighbourhood,
+    `Number of Restaurants` = num_restaurants,
+    `Average Rating` = rating_mean,
+    `Average Review Count` = review_count_mean,
+  )
+
+kable(by_num, digits = 3, caption = "**Table 1.** Summary statistics for top 10 neighbourhoods by number of restaurants")
+```
+
+```{r countmap, fig.cap="**Figure 3.** Distribution of restaurants by neighbourhood"}
+# quintile color scheme due to skewed num_restaurants
+quantiles <- quantile(neighbourhoods$num_restaurants, 
+                      probs = seq(0, 1, length.out = 6), 
+                      na.rm = TRUE)
+
+pal <- colorBin(
+  palette = c("#E1F5C4", "#EDE574", "#F9D423", "#FC913A", "#FF4E50"),
+  bins = quantiles,
+  domain = neighbourhoods$num_restaurants,
+)
+
+neighbourhoods %>% 
+  leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(
+      fillColor = ~pal(num_restaurants),  
+      fillOpacity = 1,
+      color = "black",
+      weight = 1,
+      popup = ~paste("<b>", neighbourhood, "</b><br> Restaurants:", num_restaurants)
+    ) %>% 
+    addLegend(
+      pal = pal,
+      values = neighbourhoods$num_restaurants,
+      title = "Number of Restaurants",
+      position = 'bottomright',
+    )
+```
+ 
+Additionally, **Table 2** lists the summary statistics for the top 10 neighbourhoods (with more than 5 restaurants) by average rating, with Alderwood leading at 4.440, followed by Weston and Broadview North. The mapped distribution of average ratings in **Figure 4** shows no clear spatial clustering for ratings. Comparing the two tables and maps, the neighbourhoods with high average ratings have a lower number of restaurants and lower average review count. 
+ 
+```{r}
+by_rating <- summary_table %>% 
+  filter(num_restaurants > 5) %>% 
+  arrange(desc(rating_mean)) %>% 
+  slice_head(n = 10) %>% 
+  rename(
+    `Neighbourhood` = neighbourhood,
+    `Number of Restaurants` = num_restaurants,
+    `Average Rating` = rating_mean,
+    `Average Review Count` = review_count_mean,
+  )
+
+kable(by_rating, digits = 3, caption = "**Table 2.** Summary statistics for top 10 neighbourhoods (with more than 5 restaurants) by average rating")
+```
+
+```{r ratingmap, fig.cap="**Figure 4.** Distribution of average ratings by neighbourhood"}
+# quintile color scheme due to skewed average ratings
+quantiles <- quantile(neighbourhoods$rating_mean, 
+                      probs = seq(0, 1, length.out = 6), 
+                      na.rm = TRUE)
+
+pal <- colorBin(
+  palette = c("#E1F5C4", "#EDE574", "#F9D423", "#FC913A", "#FF4E50"),
+  bins = quantiles,
+  na.color = "darkgrey",
+  domain = neighbourhoods$rating_mean,
+)
+
+neighbourhoods %>% 
+  leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(
+      fillColor = ~pal(rating_mean),  
+      fillOpacity = 1,
+      color = "black",
+      weight = 1,
+      popup = ~paste("<b>", neighbourhood, "</b><br> Average Rating:", round(rating_mean, 3))
+    ) %>% 
+    addLegend(
+      pal = pal,
+      values = neighbourhoods$rating_mean,
+      title = "Average Rating",
+      position = 'bottomright',
+    )
+```
+
+A one-way Analysis of Variance (ANOVA) test on the restaurant ratings by neighbourhood yields a p-value of approximatley 0.000 in **Table 3**, indicating that at least one neighbourhood has a statistically significant difference in restaurant rating.
+```{r}
+anova_result <- aov(rating ~ neighbourhood, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "**Table 3.** ANOVA results for restaurant ratings across neighborhoods")
+```
+
+### Distribution of Ratings by Other Categorical Variables
+I also investigate potential categorical effects on ratings for the other categorical variables: size level, price level, restaurant type and cuisine type.
+
+```{r sizebox, fig.cap="**Figure 5.** Distribution of restaurant ratings by size level and price level"}
+sizebox <- restaurants %>% 
+  ggplot(aes(x = size_level, y = rating, fill = size_level)) +
+  geom_boxplot() +
+  labs(
+       title = "Size Level",
+       x = "Size Level",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+
+pricebox <- restaurants %>% 
+  ggplot(aes(x = price_level, y = rating, fill = price_level)) +
+  geom_boxplot() +
+  labs(title = "Price Level",
+       x = "Price Level",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+
+grid.arrange(sizebox, pricebox, ncol = 2)
+```
+
+Looking at the boxplot showing the distribution of restaurant ratings by size level in **Figure 5**, the size of the chain has a negative relationship with median rating, with smaller-size restaurants having higher  ratings on average. All size levels have similar spreads of ratings. A one-way ANOVA test, with results shown in **Table 4** (p-value < 0.001) suggests that at least one size level has a statistically significant difference in rating.
+
+Similarly, the boxplot of ratings by price level also displayed in **Figure 5** suggests that the rating of a restaurant increases with price level, though restaurants with unknown (`NA`) price level have the highest median rating. The spread of ratings also decreases with price level. The one-way ANOVA test in **Table 5** (p-value < 0.001) also indicates that there is a statistically significant difference in at least one price level.
+
+```{r}
+# summary_by_size <- restaurants %>%
+#   group_by(size_level) %>%
+#   summarize(
+#     num_restaurants = n(),
+#     rating_mean = mean(rating),
+#     review_count_mean = mean(review_count),
+#   ) %>% 
+#   rename(
+#     `Size Level` = size_level,
+#     `Number of Restaurants` = num_restaurants,
+#     `Average Rating` = rating_mean,
+#     `Average Review Count` = review_count_mean,
+#   )
+# 
+# kable(summary_by_size, digits = 3, caption = "**Table 4.** Summary statistics for restaurants by size level")
+```
+
+```{r}
+anova_result <- aov(rating ~ size_level, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "**Table 4.** ANOVA results for restaurant ratings across size levels")
+```
+
+
+```{r}
+# summary_by_price <- restaurants %>%
+#   group_by(price_level) %>%
+#   summarize(
+#     num_restaurants = n(),
+#     rating_mean = mean(rating),
+#     review_count_mean = mean(review_count),
+#   ) %>% 
+#   rename(
+#     `Price Level` = price_level,
+#     `Number of Restaurants` = num_restaurants,
+#     `Average Rating` = rating_mean,
+#     `Average Review Count` = review_count_mean,
+#   )
+# 
+# kable(summary_by_price, digits = 3, caption = "**Table 6.** Summary statistics for restaurants by price level")
+```
+
+
+```{r}
+anova_result <- aov(rating ~ price_level, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "**Table 5.** ANOVA results for restaurant ratings across price levels")
+```
+
+The boxplot showing the ratings by restaurant type, **Figure 6**, shows that bistros and cafes/bakeries have the highest median ratings, while diners and fast food have the lowest median ratings. Fast food restaurants have the largest spread of ratings. Similar to the other categories, the ANOVA test in **Table 6** indicates that there is at least one statistically significant difference by restaurant type.
+```{r typebox, fig.cap="**Figure 6.** Distribution of restaurant ratings by restaurant type"}
+restaurants %>% 
+  mutate(type = fct_reorder(type, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = type, y = rating, fill = type)) +
+  geom_boxplot() +
+  labs(x = "Restaurant Type",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+```
+
+```{r}
+anova_result <- aov(rating ~ type, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "**Table 6.** ANOVA results for restaurant ratings across restaurant types")
+```
+
+The distribution of restaurant ratings by cuisine is plotted in **Figure 7**, which shows international and Middle Eastern cuisines having the highest median ratings, while North American cuisine has the lowest median rating. A one-way ANOVA test, in **Table 7** shows that at least one difference by cuisine is statistically significant.
+```{r cuisinebox, fig.cap="**Figure 7.** Distribution of restaurant ratings by cuisine"}
+restaurants %>% 
+  mutate(cuisine = fct_reorder(cuisine, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = cuisine, y = rating, fill = cuisine)) +
+  geom_boxplot() +
+  labs(x = "Cusine",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+```
+
+```{r}
+anova_result <- aov(rating ~ cuisine, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "**Table 7.** Analysis of Variance (ANOVA) results for restaurant ratings across cuisines")
+```
+
+### Relationships between Rating and Numeric Variables
+For numeric variables, I plot the correlation matrix in **Figure 8**, which shows that distance has a weak negative correlation with rating and review count and suggests that as distance increases, ratings slightly decrease, but the effect is very small. There is no correlation between review count and rating. This is further explored with the scatter plots in **Figure 9**, which do not show any clear trends for either distance nor review count with rating.
+```{r fig.height=4, fig.width=4, fig.cap="**Figure 8.** Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
+restaurants_num <- restaurants %>% 
+  select(rating, distance, review_count)
+corr <- round(cor(restaurants_num), 1)
+p.mat <- cor_pmat(restaurants_num)
+ggcorrplot(corr, lab = TRUE, p.mat = p.mat, outline.col = "white")
+```
+
+```{r scatters, fig.cap="**Figure 9.** Review Count & Distance vs Rating"}
+review_plot <- restaurants %>% 
+  ggplot(aes(x = review_count, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FF4E50") +
+  labs(title = "Review Count",
+       x = "Review Count",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+distance_plot <- restaurants %>% 
+  ggplot(aes(x = distance, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FC913A") +
+  labs(title = "Distance",
+       x = "Distance",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(review_plot, distance_plot, ncol = 2)
+```
+# Summary
+The preliminary results suggest that there are large skews and imbalances within each variable. Moreover, although no clear spatial clustering of ratings by neighbourhood is observed, ANOVA tests suggest statistically significant differences in ratings across neighborhoods. Smaller restaurant chains and higher price levels correspond to higher ratings, though restaurants with unknown price levels rank the highest. Bistros, cafés and bakeries, and international and Middle Eastern cuisine receive the highest ratings, while diners, fast food, and North American cuisine rank the lowest. ANOVA tests indicate significant differences across all categorical variables. Numeric variables show weak negative correlations with ratings. Overall, smaller, pricier restaurants, and certain restaurant types and cuisines tend to have higher ratings, while location and numeric factors play a limited role.
+
+Next, I will perform predictive modelling with regression to quantify the impact of these factors on restaurant rating. I will start by fitting a linear regression model with all of the predictors as a baseline, and refine it using All Possible Subsets Selection to choose a final linear regression model. Then, I will fit tree-based regression models, including a regression tree, a random forest, and XGBoost, tuning hyperparameters for each model. The performance of each model will be evaluated with R-squared and RMSE, with results compared across all models. I will also use the models to determine variable importances. These steps will provide insights to the research question.
+
+# References
+
+
+
+
