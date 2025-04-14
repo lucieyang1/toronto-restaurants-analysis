@@ -4,7 +4,12 @@ navbar:
   left:
     - text: "Home"
       href: index.html
+  right:
+    - icon: fa-github fa-lg
+      href: https://github.com/lucieyang1/toronto-restaurants-analysis
 output:
   html_document:
-    theme: united
+    theme: journal
+    includes:
+      in_header: header.html
 output_dir: "docs"
