@@ -1,12 +1,18 @@
 ---
-title: "JSC370 Final Project"
+title: "Analyzing Toronto’s Restaurant Ratings"
+subtitle: "The Role of Location, Price, and Other Factors"
 author: "Lucie Yang"
-output: 
+output:
     html_document:
         toc: TRUE
         toc_float: TRUE
+link-citations: true
+bibliography: references.bib
 ---
 
-# Intro
-This is my JSC370 Final Project website.
+# Description
+As a city with a vibrant and culturally diverse population, Toronto’s food scene features a wide variety of cuisines from around the world, ranging from fast food to family-owned cafes and fine dining restaurants. With thousands of restaurants across the city, online ratings on platforms like Yelp can have a strong influence on the decisions of individuals, as well as the marketing and operational decision-making of the business owners. Using restaurant data from Yelp, I aim to investigate the research question: *How do key factors, such as location, price, categories, authenticity and review count, contribute to the rating of a restaurant?*
 
+The dataset used for this analysis was from the Yelp Fusion API [@yelp_api] and consisted of 6167 restaurants. Additional neighbourhood data from Toronto Open Data [@neighbourhoods] was used. First, I cleaned the data, then extracted interesting predictor variables and conducted exploratory data analysis (see visualizations in in the [EDA tab](https://lucieyang1.github.io/toronto-restaurants-analysis/eda-viz.html)). Then, I used various regression models to gain insight into the patterns related to the research question: a linear regression model, generalized linear mixed model, regression tree, random forest, gradient boost models and XGBoost. These models suggested relationships between models and variable importances. Moreover, XGBoost had the lowest Test RMSE, suggesting that it had the best fit on the data.
+
+# Data Sources

@@ -12,7 +12,7 @@
 <meta name="author" content="Lucie Yang" />
 
 
-<title>JSC370 Final Project</title>
+<title>Analyzing Toronto’s Restaurant Ratings</title>
 
 <script src="site_libs/header-attrs-2.27/header-attrs.js"></script>
 <script src="site_libs/jquery-3.6.0/jquery-3.6.0.min.js"></script>
@@ -92,6 +92,29 @@ if (window.hljs) {
 
 
 
+<style type="text/css">
+/* for pandoc --citeproc since 2.11 */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+  margin-bottom: 0em;
+}
+.hanging div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}
+</style>
 
 
 
@@ -346,12 +369,15 @@ div.tocify {
         <span class="icon-bar"></span>
         <span class="icon-bar"></span>
       </button>
-      <a class="navbar-brand" href="index.html">My Website</a>
+      <a class="navbar-brand" href="index.html">Toronto Restaurant Analysis</a>
     </div>
     <div id="navbar" class="navbar-collapse collapse">
       <ul class="nav navbar-nav">
         <li>
-  <a href="index.html">Home</a>
+  <a href="index.html">Intro</a>
+</li>
+<li>
+  <a href="regression.html">Regression Models</a>
 </li>
       </ul>
       <ul class="nav navbar-nav navbar-right">
@@ -370,15 +396,54 @@ div.tocify {
 
 
 
-<h1 class="title toc-ignore">JSC370 Final Project</h1>
+<h1 class="title toc-ignore">Analyzing Toronto’s Restaurant Ratings</h1>
+<h3 class="subtitle">The Role of Location, Price, and Other Factors</h3>
 <h4 class="author">Lucie Yang</h4>
 
 </div>
 
 
-<div id="intro" class="section level1">
-<h1>Intro</h1>
-<p>This is my JSC370 Final Project website.</p>
+<div id="description" class="section level1">
+<h1>Description</h1>
+<p>As a city with a vibrant and culturally diverse population, Toronto’s
+food scene features a wide variety of cuisines from around the world,
+ranging from fast food to family-owned cafes and fine dining
+restaurants. With thousands of restaurants across the city, online
+ratings on platforms like Yelp can have a strong influence on the
+decisions of individuals, as well as the marketing and operational
+decision-making of the business owners. Using restaurant data from Yelp,
+I aim to investigate the research question: <em>How do key factors, such
+as location, price, categories, authenticity and review count,
+contribute to the rating of a restaurant?</em></p>
+<p>The dataset used for this analysis was from the Yelp Fusion API <span
+class="citation">(<a href="#ref-yelp_api">Yelp Inc., n.d.</a>)</span>
+and consisted of 6167 restaurants. Additional neighbourhood data from
+Toronto Open Data <span class="citation">(<a
+href="#ref-neighbourhoods">City of Toronto 2024</a>)</span> was used.
+First, I cleaned the data, then extracted interesting predictor
+variables and did exploratory data analysis. Then, I used various
+regression models to gain insight into the patterns related to the
+research question: a linear regression model, generalized linear mixed
+model, regression tree, random forest, gradient boost models and
+XGBoost. These models suggested relationships between models and
+variable importances. Moreover, XGBoost had the lowest Test RMSE,
+suggesting that it had the best fit on the data.</p>
+</div>
+<div id="data-sources" class="section level1 unnumbered">
+<h1 class="unnumbered">Data Sources</h1>
+<div id="refs" class="references csl-bib-body hanging-indent"
+entry-spacing="0">
+<div id="ref-neighbourhoods" class="csl-entry">
+City of Toronto. 2024. <span>“Neighbourhoods Dataset.”</span> <a
+href="https://open.toronto.ca/dataset/neighbourhoods/"
+class="uri">https://open.toronto.ca/dataset/neighbourhoods/</a>.
+</div>
+<div id="ref-yelp_api" class="csl-entry">
+Yelp Inc. n.d. <span>“Yelp Fusion API.”</span> <a
+href="https://business.yelp.com/data/products/fusion/"
+class="uri">https://business.yelp.com/data/products/fusion/</a>.
+</div>
+</div>
 </div>
 
 

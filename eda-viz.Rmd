@@ -1,0 +1,338 @@
+---
+title: 'Exploratory Data Analysis'
+output:
+  html_document:
+    fig_width: 10
+    fig_height: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
+library(data.table)
+library(tidyverse)
+library(knitr)
+library(httr)
+library(sf)
+library(ggplot2)
+library(gridExtra)
+library(leaflet)
+library(ggcorrplot)
+library(plotly)
+```
+
+```{css, echo = FALSE}
+caption {
+      color: black;
+    }
+```
+
+```{r}
+restaurants <- read.csv("data/cleaned_restaurants.csv") # from `data-wrangling.Rmd`
+```
+
+```{r}
+restaurants <- restaurants %>% 
+  mutate(
+    price_level = if_else(is.na(price_level), "Unknown", price_level)) %>% 
+  mutate(
+    price_level = factor(price_level, 
+                         levels = c("Low", "Medium", "High", "Very High", "Unknown")),
+    size_level = factor(size_level, 
+                         levels = c("Single Location", "Small Chain", 
+                                    "Medium Chain", "Large Chain"))
+  )
+```
+
+# Distributions of Variables {.tabset}
+First, the distribution of rating, review count, distance, size level, and price level were plotted in **Figure 1**, which shows that ratings are left-skewed, while review count and distance are right-skewed. Moreover, most of the restaurants are single locations, while most of the known price levels are in the medium category. 
+
+The distribution of the broader categories of restaurant type in **Figure 2** reveals that a large number of restaurants were uncategorized by type and cuisine. **Figure 3** also showed that of the categorized restaurants, there was the highest number of bars and east Asian restaurants.
+
+## Rating, Review Count, Distance, Size Level, and Price Level
+
+```{r distributions, fig.cap="**Figure 1.** Distribution of rating, review count, distance, size level, and price level"}
+rest_bar <- restaurants %>% 
+  mutate(
+    size_level = case_when(
+      size_level == "Single Location" ~ "Single", 
+      size_level == "Small Chain" ~ "Small",
+      size_level == "Medium Chain" ~ "Medium", 
+      size_level == "Large Chain" ~ "Large"),
+    size_level = factor(size_level, 
+                        levels = c("Single", "Small", "Medium", "Large"))
+  )
+
+par(mar = c(5, 4, 2, 1))
+layout(matrix(c(1, 2, 3, 
+                1, 4, 5), 
+              nrow = 2, 
+              byrow = TRUE))
+hist(restaurants$rating,
+    main = "Distribution of Rating",
+    xlab = "Rating",
+    ylab = "Count",
+    col = "salmon")
+hist(restaurants$review_count,
+    main = "Distribution of Review Count",
+    xlab = "Review Count",
+    ylab = "Count",
+    col = "skyblue")
+hist(restaurants$distance,
+    main = "Distribution of Distance\nfrom Toronto Center",
+    xlab = "Distance (m)",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(rest_bar$size_level),
+    main = "Distribution of Chain Size Levels",
+    xlab = "Number of Restaurants",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(restaurants$price_level),
+    main = "Distribution of Price Levels",
+    xlab = "Price Level",
+    ylab = "Count",
+    col = "skyblue"
+    # cex.names = 0.8
+    )
+```
+
+## Type
+
+```{r type, fig.cap="**Figure 2.** Distribution of restaurant type"}
+type_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(type, type, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(x = "Restaurant Type",
+       y = "Count") +
+  theme_light()
+
+ggplotly(type_plot)
+```
+
+## Cuisine
+
+```{r cuisine, fig.cap="**Figure 3.** Distribution of cuisine"}
+cuisine_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(cuisine, cuisine, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(x = "Cuisine",
+       y = "Count") +
+  theme_light()
+
+ggplotly(cuisine_plot)
+```
+
+# Distribution of Restaurants and Ratings by Neighbourhood {.tabset}
+The distribution on the map in **Figure 4** suggests that neighbourhoods in the downtown area have the highest number of restaurants. However, the mapped distribution of average ratings in **Figure 5** shows no clear spatial clustering for ratings. Comparing the two tables and maps, the neighbourhoods with high average ratings have a lower number of restaurants and lower average review count. 
+
+## Restaurants 
+
+```{r}
+summary_table <- restaurants %>%
+  group_by(neighbourhood) %>%
+  summarize(
+    num_restaurants = n(),
+    rating_mean = mean(rating),
+    review_count_mean = mean(review_count),
+  )
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+neighbourhoods <- st_read("data/neighbourhoods/neighbourhoods.shp")
+neighbourhoods <- neighbourhoods %>%
+  left_join(summary_table, by = join_by(AREA_NA7 == neighbourhood)) %>% 
+  mutate(num_restaurants = replace_na(num_restaurants, 0)) %>% 
+  rename(neighbourhood = AREA_NA7)
+```
+
+```{r countmap, fig.cap="**Figure 4.** Distribution of restaurants by neighbourhood"}
+# quintile color scheme due to skewed num_restaurants
+quantiles <- quantile(neighbourhoods$num_restaurants, 
+                      probs = seq(0, 1, length.out = 6), 
+                      na.rm = TRUE)
+# leaflegend
+# addLegendQuantile
+pal <- colorBin(
+  palette = c("#E1F5C4", "#EDE574", "#F9D423", "#FC913A", "#FF4E50"),
+  bins = quantiles,
+  domain = neighbourhoods$num_restaurants,
+)
+
+neighbourhoods %>% 
+  leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(
+      fillColor = ~pal(num_restaurants),  
+      fillOpacity = 1,
+      color = "black",
+      weight = 1,
+      popup = ~paste("<b>", neighbourhood, "</b><br> Restaurants:", num_restaurants)
+    ) %>% 
+    addLegend(
+      pal = pal,
+      values = neighbourhoods$num_restaurants,
+      title = "Number of Restaurants<br>(by Quintiles)",
+      position = 'bottomright',
+    )
+```
+ 
+## Ratings
+
+```{r ratingmap, fig.cap="**Figure 5.** Distribution of average ratings by neighbourhood"}
+# quintile color scheme due to skewed average ratings
+quantiles <- quantile(neighbourhoods$rating_mean, 
+                      probs = seq(0, 1, length.out = 6), 
+                      na.rm = TRUE)
+
+pal <- colorBin(
+  palette = c("#E1F5C4", "#EDE574", "#F9D423", "#FC913A", "#FF4E50"),
+  bins = quantiles,
+  na.color = "darkgrey",
+  domain = neighbourhoods$rating_mean,
+)
+
+neighbourhoods %>% 
+  leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(
+      fillColor = ~pal(rating_mean),  
+      fillOpacity = 1,
+      color = "black",
+      weight = 1,
+      popup = ~paste("<b>", neighbourhood, "</b><br> Average Rating:", round(rating_mean, 3))
+    ) %>% 
+    addLegend(
+      pal = pal,
+      values = neighbourhoods$rating_mean,
+      title = "Average Rating<br>(by Quintiles)",
+      position = 'bottomright',
+    )
+```
+
+# Distribution of Ratings by Other Categorical Variables {.tabset}
+
+Looking at the boxplot showing the distribution of restaurant ratings by size level in **Figure 6**, the size of the chain has a negative relationship with median rating, with smaller-size restaurants having higher  ratings on average. All size levels have similar spreads of ratings. Similarly, the boxplot of ratings by price level also displayed in **Figure 7** suggests that the rating of a restaurant increases with price level, though restaurants with unknown price level have the highest median rating. The spread of ratings also decreases with price level.
+
+The boxplot showing the ratings by restaurant type, **Figure 8**, shows that bistros and cafes/bakeries have the highest median ratings, while diners and fast food have the lowest median ratings. Fast food restaurants have the largest spread of ratings. The distribution of restaurant ratings by cuisine is plotted in **Figure 7**, which shows international and Middle Eastern cuisines having the highest median ratings, while North American cuisine has the lowest median rating.
+
+## Size Level
+
+```{r sizebox, fig.cap="**Figure 6.** Distribution of restaurant ratings by size level"}
+sizebox <- restaurants %>% 
+  ggplot(aes(x = size_level, y = rating, fill = size_level)) +
+  geom_boxplot() +
+  labs(x = "Size Level",
+       y = "Rating") +
+  theme_light() +
+  theme(legend.position = "none")
+
+ggplotly(sizebox)
+```
+
+## Price Level
+
+```{r pricebox, fig.cap="**Figure 7.** Distribution of restaurant ratings by price level"}
+pricebox <- restaurants %>% 
+  ggplot(aes(x = price_level, y = rating, fill = price_level)) +
+  geom_boxplot() +
+  labs(x = "Price Level",
+       y = "Rating") +
+  theme_light() +
+  theme(legend.position = "none")
+
+ggplotly(pricebox)
+```
+
+## Type
+
+```{r typebox, fig.cap="**Figure 8.** Distribution of restaurant ratings by restaurant type"}
+restaurants %>% 
+  mutate(type = fct_reorder(type, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = type, y = rating, fill = type)) +
+  geom_boxplot() +
+  labs(x = "Restaurant Type",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(legend.position = "none")
+```
+
+## Cuisine
+
+```{r cuisinebox, fig.cap="**Figure 9.** Distribution of restaurant ratings by cuisine"}
+restaurants %>% 
+  mutate(cuisine = fct_reorder(cuisine, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = cuisine, y = rating, fill = cuisine)) +
+  geom_boxplot() +
+  labs(x = "Cusine",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(legend.position = "none")
+```
+
+# Relationships between Rating and Numeric Variables {.tabset}
+The scatter plots in **Figures 10** to **13** do not show any clear trends for dsitance, review count, longitude, or latitude with rating.
+
+## Review Count
+
+```{r review_plot, fig.cap="**Figure 10.** Review Count vs Rating"}
+review_plot <- restaurants %>% 
+  ggplot(aes(x = review_count, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FF4E50") +
+  labs(x = "Review Count",
+       y = "Rating") +
+  theme_light()
+
+ggplotly(review_plot)
+```
+
+## Distance
+
+```{r distance_plot, fig.cap="**Figure 11.** Distance vs Rating"}
+distance_plot <- restaurants %>% 
+  ggplot(aes(x = distance, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FC913A") +
+  labs(x = "Distance",
+       y = "Rating") +
+  theme_light()
+
+ggplotly(distance_plot)
+```
+
+## Longitude
+
+```{r longitude_plot, fig.cap="**Figure 12.** Longitude vs Rating"}
+longitude_plot <- restaurants %>% 
+  ggplot(aes(x = longitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "lightgreen") +
+  labs(x = "Longitude",
+       y = "Rating") +
+  theme_light()
+
+ggplotly(longitude_plot)
+```
+
+
+## Latitude
+
+```{r latitude_plot, fig.cap="**Figure 13.** Latitude vs Rating"}
+latitude_plot <- restaurants %>% 
+  ggplot(aes(x = latitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "skyblue") +
+  labs(x = "Latitude",
+       y = "Rating") +
+  theme_light()
+
+ggplotly(latitude_plot)
+```
+
+
+
+
+

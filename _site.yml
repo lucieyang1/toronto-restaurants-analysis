@@ -1,9 +1,13 @@
 name: "toronto-restaurants-analysis"
 navbar:
-  title: "My Website"
+  title: "Toronto Restaurant Analysis"
   left:
     - text: "Home"
       href: index.html
+    - text: "EDA"
+      href: eda-viz.html
+    - text: "Regression Models"
+      href: regression.html
   right:
     - icon: fa-github fa-lg
       href: https://github.com/lucieyang1/toronto-restaurants-analysis
