@@ -3,6 +3,15 @@ As a city with a vibrant and culturally diverse population, Toronto’s food sce
 
 The dataset used for this analysis was from the [Yelp Fusion API](https://business.yelp.com/data/products/fusion/) and consisted of 6167 restaurants. Additional neighbourhood boundary data from [Toronto Open Data](https://open.toronto.ca/dataset/neighbourhoods/) was used. First, I cleaned the data, then extracted interesting predictor variables and conducted exploratory data analysis. Then, I used various regression models to gain insight into the patterns related to the research question: a linear regression model, generalized linear mixed model, regression tree, random forest, gradient boost models and XGBoost. These models suggested relationships between models and variable importances. Moreover, XGBoost had the lowest Test RMSE, suggesting that it had the best fit on the data.
 
+## Organization
+
+- [docs/](docs) - the site libraries and files
+- [data/](data) - the raw and cleaned data files
+- [reports/](reports) - the midterm and final report
+- [data-wrangling.md](data-wrangling.md) - the data acquisition and cleaning process
+- other miscellaneous files needed for site setup
+
+
 ## Resources
 The website can be accessed at: https://lucieyang1.github.io/toronto-restaurants-analysis/
 
