@@ -36,7 +36,7 @@ caption {
 ```
 
 ```{r}
-restaurants <- read.csv("data/cleaned_restaurants.csv") # from `data-wrangling.Rmd`
+restaurants <- read.csv("../data/cleaned_restaurants.csv") # from `data-wrangling.Rmd`
 ```
 
 ```{r}
@@ -176,7 +176,7 @@ summary_table <- restaurants %>%
 ```
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
-neighbourhoods <- st_read("data/neighbourhoods/neighbourhoods.shp")
+neighbourhoods <- st_read("../data/neighbourhoods/neighbourhoods.shp")
 neighbourhoods <- neighbourhoods %>%
   left_join(summary_table, by = join_by(AREA_NA7 == neighbourhood)) %>% 
   mutate(num_restaurants = replace_na(num_restaurants, 0)) %>% 
