@@ -215,8 +215,6 @@ neighbourhoods <- neighbourhoods %>%
   rename(neighbourhood = AREA_NA7)
 ```
 
-\newpage
-
 ```{r}
 by_num <- summary_table %>%
   arrange(desc(num_restaurants)) %>%
@@ -336,7 +334,6 @@ restaurants %>%
         legend.position = "none")
 ```
 
-\newpage
 
 ```{r}
 anova_result <- aov(rating ~ cuisine, data = restaurants)
@@ -349,7 +346,6 @@ For numeric variables, I plot the correlation matrix in **Figure 6**, which show
 
 This is further explored with the scatter plots in **Figure 7**, which do not show any clear trends for distance, review count, longitude, or latitude with rating.
 
-\newpage
 
 ```{r fig.height=4, fig.width=4, fig.cap="Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
 restaurants_num <- restaurants %>% 
@@ -465,7 +461,6 @@ ggplot(base_lm_coef, aes(x = estimate, y = reorder(term, estimate), color = grou
   theme(legend.position = "none")
 ```
 
-\newpage
 
 ```{r}
 kable(vif(base_lm), digits = 3, caption = "Variance Inflation Factor (VIF) for each predictor in the baseline linear model")

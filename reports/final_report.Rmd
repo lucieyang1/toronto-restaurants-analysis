@@ -215,8 +215,6 @@ neighbourhoods <- neighbourhoods %>%
   rename(neighbourhood = AREA_NA7)
 ```
 
-\newpage
-
 ```{r}
 by_num <- summary_table %>%
   arrange(desc(num_restaurants)) %>%
@@ -336,7 +334,6 @@ restaurants %>%
         legend.position = "none")
 ```
 
-\newpage
 
 ```{r}
 anova_result <- aov(rating ~ cuisine, data = restaurants)
@@ -349,7 +346,6 @@ For numeric variables, I plot the correlation matrix in **Figure 6**, which show
 
 This is further explored with the scatter plots in **Figure 7**, which do not show any clear trends for distance, review count, longitude, or latitude with rating.
 
-\newpage
 
 ```{r fig.height=4, fig.width=4, fig.cap="Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
 restaurants_num <- restaurants %>% 
@@ -465,7 +461,6 @@ ggplot(base_lm_coef, aes(x = estimate, y = reorder(term, estimate), color = grou
   theme(legend.position = "none")
 ```
 
-\newpage
 
 ```{r}
 kable(vif(base_lm), digits = 3, caption = "Variance Inflation Factor (VIF) for each predictor in the baseline linear model")
@@ -485,6 +480,8 @@ auto_lm <- stepAIC(base_lm, direction = "both", k = 2)
 ```
 
 Notably, the location-related variables (longitude, latitude, and distance) were removed, suggesting that they are not as important for predicting rating. The estimated coefficients are shown in **Figure 9**, with very similar results to the baseline model: price level, review count and size level are statistically significant, whereas only one cuisine and a few types are statistically significant. The adjusted R-squared is also very similar, at **0.188**, suggesting that this model has a marginally better fit than the baseline linear model.
+
+\newpage
 
 ```{r autocoef, fig.width = 10, fig.height = 6, fig.cap="Coefficients and their 95% confidence interval for the automated linear model"}
 auto_lm_coef <- tidy(auto_lm, conf.int = TRUE)

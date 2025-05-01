@@ -25,6 +25,7 @@ library(gbm)
 library(xgboost)
 library(doParallel)
 library(plotly)
+library(broom)
 ```
 
 ```{css, echo = FALSE}
@@ -73,8 +74,41 @@ data <- data.frame(
 kable(data, format = "pipe", caption = "**Table 1**. RMSE results for each model", col.names = c("Method", "Train RMSE", "Test RMSE"))
 ```
 
+# Linear Regression Coefficients
+**Figure 1** shows the estimated coefficients from a baseline linear regression model. Notably, all of the size levels have statistically significant effects at the 0.05 significance level. For example, large chains have a 0.921 lower rating than single location restaurants on average. Moreover, two of the price levels have statistically significant effects: Very High and Unknown, compared to the baseline level of Low. Review count also has small, but statistically significant effect
+```{r}
+base_lm <- lm(rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level, data = rest_train)
+```
+
+```{r basecoef, fig.width = 10, fig.height = 6, fig.cap="**Figure 1.** Coefficients and their 95% confidence interval for the baseline linear model"}
+base_lm_coef <- tidy(base_lm, conf.int = TRUE)
+base_lm_coef <- base_lm_coef[base_lm_coef$term != "(Intercept)", ]
+base_lm_coef <- base_lm_coef %>%
+  mutate(group = case_when(
+    grepl("cuisine", term)     ~ "Cuisine",
+    grepl("type", term)        ~ "Type",
+    grepl("price_level", term) ~ "Price Level",
+    grepl("size_level", term)  ~ "Size Level",
+    TRUE                       ~ "Other"
+  ))
+base_lm_coef$group <- factor(
+  base_lm_coef$group,
+  levels = c("Cuisine", "Type", "Price Level", "Size Level", "Other")
+)
+
+ggplot(base_lm_coef, aes(x = estimate, y = reorder(term, estimate), color = group)) +
+  facet_wrap(~group, scales = "free_y", ncol = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  labs(x = "Coefficient Estimate", y = "Predictor") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
 # Variable Importances
-**Figure 1** shows the rankings of each variable in the random forest, boosting and XGBoost models. There is a lot of variations between the rankings, but overall, size level appears to be the most important.
+**Figure 2** shows the rankings of each variable in the random forest, boosting and XGBoost models. There is a lot of variations between the rankings, but overall, size level appears to be the most important.
 ```{r}
 importances <- data.frame(
   model = rep(c("Random Forest", "Boosting", "XGBoost"), each = 8),
@@ -89,7 +123,7 @@ importances <- data.frame(
 importances$model <- factor(importances$model, levels = c("Random Forest", "Boosting", "XGBoost"))
 ```
 
-```{r diff, fig.cap="**Figure 1.** Differences in Variable Importance Rankings Over Models"}
+```{r diff, fig.cap="**Figure 2.** Differences in Variable Importance Rankings Over Models"}
 library(ggbump)
 
 imp <- ggplot(importances, aes(x = model, y = rank, group = variable, 

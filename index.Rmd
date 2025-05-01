@@ -7,8 +7,10 @@ output:
         toc: TRUE
         toc_float: TRUE
 link-citations: true
-bibliography: references.bib
+bibliography: reports/references.bib
 ---
+
+**Download the PDF [here](https://github.com/lucieyang1/toronto-restaurants-analysis/blob/main/reports/final_report.pdf)**
 
 # Description
 As a city with a vibrant and culturally diverse population, Toronto’s food scene features a wide variety of cuisines from around the world, ranging from fast food to family-owned cafes and fine dining restaurants. With thousands of restaurants across the city, online ratings on platforms like Yelp can have a strong influence on the decisions of individuals, as well as the marketing and operational decision-making of the business owners. Using restaurant data from Yelp, I aim to investigate the research question: *How do key factors, such as location, price, categories, authenticity and review count, contribute to the rating of a restaurant?*
