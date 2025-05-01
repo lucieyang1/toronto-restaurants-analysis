@@ -1,0 +1,782 @@
+---
+title: 'Analyzing Toronto’s Restaurant Ratings: The Role of Location, Price, and Other
+  Factors'
+author: "Lucie Yang"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  pdf_document: 
+    fig_width: 10
+    fig_height: 4
+    fig_caption: true
+    toc: true
+    toc_depth: 4
+link-citations: true
+subtitle: "**Github**: https://github.com/lucieyang1/toronto-restaurants-analysis"
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
+library(data.table)
+library(tidyverse)
+library(knitr)
+library(httr)
+library(sf)
+library(ggplot2)
+library(gridExtra)
+library(leaflet)
+library(ggcorrplot)
+library(broom)
+library(car)
+library(glmmTMB)
+library(MASS)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gbm)
+library(xgboost)
+library(doParallel)
+library(plotly)
+library(caret)
+```
+
+```{css, echo = FALSE}
+caption {
+      color: black;
+    }
+```
+
+```{r}
+restaurants <- read.csv("../data/cleaned_restaurants.csv") # from `data-wrangling.Rmd`
+```
+
+```{r}
+restaurants <- restaurants %>% 
+  mutate(
+    price_level = factor(price_level, 
+                         levels = c("Low", "Medium", "High", "Very High")),
+    size_level = factor(size_level, 
+                         levels = c("Single Location", "Small Chain", 
+                                    "Medium Chain", "Large Chain")),
+    cuisine = ifelse(cuisine == "Other", "Unknown", cuisine),
+    type = ifelse(type == "Other", "Unknown", type)
+  )
+```
+
+\newpage
+
+# 1 Introduction
+As a city with a vibrant and culturally diverse population, Toronto’s food scene features a wide variety of cuisines from around the world, ranging from fast food to family-owned cafes and fine dining restaurants. With thousands of restaurants across the city, online ratings on platforms like Yelp can have a strong influence on the decisions of individuals, as well as the marketing and operational decision-making of the business owners. Using restaurant data from Yelp, I aim to investigate the research question: *How do key factors, such as location, price, categories, authenticity and review count, contribute to the rating of a restaurant?*
+
+A study of restaurant inspection results in 2017 and 2018 in Toronto suggested that there are significant geospatial clustering patterns in restaurant quality, with hotspots of high infraction rates in North York and on the eastern shoreline [@ng2020spatial]. Moreover, a 2000 study of 63 restaurants in Toronto found that features that correlated with upscale restaurants had a positive effect on customer ratings [@susskind2000]. An Australian study identified that cuisines had differing reputations, with European cuisines associated with a higher reputation [@fogarty2012]. Additionally, a 2013 study in the United States suggested that restaurants perceived as more authentic received higher ratings, with chain restaurants viewed as less authentic than family-owned establishments [@kovacs2014authenticity]. These related studies motivated the inclusion of several variables in this study and suggest the following hypothesis: locations identified as infraction hotspots are expected to have lower ratings, while factors such as higher prices, European cuisine, and greater authenticity are anticipated to correlate with higher ratings. 
+
+# 2 Methods
+
+## 2.1 Data Acquisition and Cleaning
+The original dataset was extracted from the Yelp Fusion API [@yelp_api] and consisted of 6167 restaurants with 14 attributes, including average user rating, longitude, latitude, distance from the center of Toronto (defined as <43.64547, -79.42223>), a list of categories, review count, and user-rated price level. The rating is a continuous variable between 0 and 5. The business search API was used with the location set to ‘Toronto, ON’ and the term ‘restaurants’. Due to API limitations that only return the 240 “best match” results per query, the search was conducted independently over 134 selected categories and then combined into a single dataset. A neighbourhood attribute was added based on the longitude and latitude of restaurants through a spatial join with the neighbourhood boundary dataset from Toronto Open Data [@neighbourhoods].
+
+The data was cleaned by removing erroneous and uninformative observations: restaurants with less than 3 reviews (so that the rating is less noisy or biased), restaurants with missing latitude and longitude (since location is important to the analysis), and restaurants not in Toronto (based on the boundaries from the neighbourhood dataset). The price level was converted into a factor with more interpretable levels, and categories were grouped into broader categories of restaurant type and cuisine (grouped by region). Unfotunately, a large number of restaurants had only one of restaurant type or cuisine (not both), leading to a large number of unknown values for restaurant type and cuisine. A variable representing categories of chain size was made, based on counts of the number of restaurants in Toronto with the same name (1 is a single location, 2-3 is considered small chain, 3-10 is considered a medium chain, and more than 10 is considered a large chain). After cleaning, there were 3985 restaurants in the dataset and 13 variables.
+
+## 2.2 Exploratory Data Analysis
+To explore the data, summary statistics were calculated over select categorical variables, and multiple plots were created: the distributions of each variable; relationships between each variable and the target variable, rating; and maps showing the spatial distribution of the variables. Additionally, ANOVA tests were conducted to assess whether the differences in mean ratings were statistically significant across the various categories of the categorical variables.
+
+## 2.3 Predictive Modelling
+Next, I performed predictive modelling with regression to quantify the impact of these factors on restaurant rating. First the data was split into a 70-20 train-test split. The performance of each model was be evaluated with train and test RMSE, with results compared across all models. The model with the best performance was then chosen as the final model. The models were also used to determine variable importances. These steps provide insights to the research question.
+
+### Traditional Models
+I started by fitting a linear regression model with all of the predictors (distance, longitude, latitude, price level, review count, type, cuisine, and size level) as a baseline, as follows:
+$$
+\text{rating} \sim \text{distance} + \text{longitude} + \text{latitude} + \text{price\_level} + \text{review\_count} + \text{type} + \text{cuisine} + \text{size\_level}
+$$
+
+Linear regression is a method used to model the relationship between a numeric dependent variable and one or more independent variables by fitting a linear equation to the observed data. It was then refined using Automated Selection to choose a final linear regression model. Automated selection chooses variables to add and remove over multiple iterations based on the Akaike Information Criterion (AIC) was used to efficiently identify important predictors. Then, since there are a large number of neighbourhoods and getting the individual effect for each neighbourhood is not particularly insightful, I fit a Generalized Linear Mixed Model (GLMM). A GLMM is an extension of a linear model, but with an additional random effect. I refit the baseline linear model with neighbourhood treated as a random effect using the `glmmTMB` package as follows:
+$$
+Y_{ij}|U \overset{\text{ind}}{\sim} N(\lambda_{ij}, \theta_{ij})
+$$
+$$
+\lambda_{ij} = X_i\beta_i + U_j
+$$
+$$
+U_j \overset{\text{ind}}{\sim} N(0, \sigma)
+$$ 
+
+where: 
+
+- $i$ represents the restaurant and $j$ represents its neighbourhood
+- $\lambda_{ij}$ is the expected rating for restaurant $i$ in neighbourhood $j$
+- $\theta_{ij}$ is the variance of rating for restaurant $i$ in neighbourhood $j$
+- $X_i\beta_i$ is the baseline linear coefficients
+- $U_j$ is the random effect for neighbourhood $j$ 
+  - $\sigma$ is the common standard deviation across neighbourhoods 
+
+### Tree-based Models
+Then, I fit tree-based regression models, including a regression tree, a random forest, gradient boosting, and XGBoost, tuning hyperparameters for each model. 
+
+A regression tree is a decision tree model that predicts continuous values by splitting data into subsets based on feature values. Random Forest is an ensemble method that combines multiple decision trees to improve accuracy and reduce overfitting. Gradient Boosting sequentially builds decision trees, where each tree corrects the previous one's errors. XGBoost enhances gradient boosting with more efficient training, regularization to prevent overfitting, and techniques like tree pruning for better generalization.
+
+# 3 Results
+## 3.1 Exploratory Data Analysis
+### Distributions of Variables
+First, the distribution of rating, review count, distance, size level, and price level were plotted in **Figure 1**, which shows that ratings are left-skewed, while review count and distance are right-skewed. Moreover, most of the restaurants are single locations, while most of the known price levels are in the medium category. 
+
+```{r distributions, fig.cap="Distribution of rating, review count, distance, size level, and price level"}
+rest_bar <- restaurants %>% 
+  mutate(
+    size_level = case_when(
+      size_level == "Single Location" ~ "Single", 
+      size_level == "Small Chain" ~ "Small",
+      size_level == "Medium Chain" ~ "Medium", 
+      size_level == "Large Chain" ~ "Large"),
+    size_level = factor(size_level, 
+                        levels = c("Single", "Small", "Medium", "Large"))
+  )
+
+par(mar = c(5, 4, 2, 1))
+layout(matrix(c(1, 2, 3, 
+                1, 4, 5), 
+              nrow = 2, 
+              byrow = TRUE))
+hist(restaurants$rating,
+    main = "Distribution of Rating",
+    xlab = "Rating",
+    ylab = "Count",
+    col = "salmon")
+hist(restaurants$review_count,
+    main = "Distribution of Review\nCount",
+    xlab = "Review Count",
+    ylab = "Count",
+    col = "skyblue")
+hist(restaurants$distance,
+    main = "Distribution of Distance\nfrom Toronto Center",
+    xlab = "Distance (m)",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(rest_bar$size_level),
+    main = "Distribution of Chain\nSize Levels",
+    xlab = "Number of Restaurants",
+    ylab = "Count",
+    col = "skyblue")
+barplot(table(restaurants$price_level),
+    main = "Distribution of Price Levels",
+    xlab = "Price Level",
+    ylab = "Count",
+    col = "skyblue"
+    # cex.names = 0.8
+    )
+```
+
+The distribution of the broader categories of restaurant type and cuisine in **Figure 2** reveals that a large number of restaurants were uncategorized by type and cuisine. It also showed that of the categorized restaurants, there was the highest number of bars and east Asian restaurants.
+
+```{r categories, fig.cap="Distribution of restaurant type and cuisine"}
+type_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(type, type, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Distribution of Restaurant Type",
+       x = "Restaurant Type",
+       y = "Count") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+cuisine_plot <- restaurants %>% 
+  ggplot(aes(x = reorder(cuisine, cuisine, function(x) length(x)))) +
+  geom_bar(fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Distribution of Cuisine",
+       x = "Cuisine",
+       y = "Count") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(type_plot, cuisine_plot, ncol = 2)
+```
+
+### Distribution of Restaurants and Ratings by Neighbourhood
+Then, to investigate the distribution of restaurants and their ratings by neighbourhood, I summarize numeric variables by neighbourhood and plot their spatial distributions. As shown in the summary statistics of the top 10 neighbourhoods by restaurant count, in **Table 1**, the Kensington-Chinatown neighbourhood has the highest number of restaurants, at 297, followed by the Yonge-Bay Corridor and the Wellington Place neighbourhoods. The distribution on the interactive map in **[Figure 5 on the website](https://lucieyang1.github.io/toronto-restaurants-analysis/eda-viz.html)** suggests that neighbourhoods in the downtown area have the highest number of restaurants. As seen on the map, there are 158 neighbourhoods in Toronto, and the number of restaurants per restaurant skews right, with the 80% of neighbourhoods having less than 37 restaurants. This suggests that including neighbourhood as a fixed effect would be difficult to interpret and could cause overfitting, and supports my decision to potentially include it as a random effect instead.
+
+```{r}
+summary_table <- restaurants %>%
+  group_by(neighbourhood) %>%
+  summarize(
+    num_restaurants = n(),
+    rating_mean = mean(rating),
+    review_count_mean = mean(review_count),
+  )
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+neighbourhoods <- st_read("../data/neighbourhoods/neighbourhoods.shp")
+neighbourhoods <- neighbourhoods %>%
+  left_join(summary_table, by = join_by(AREA_NA7 == neighbourhood)) %>% 
+  mutate(num_restaurants = replace_na(num_restaurants, 0)) %>% 
+  rename(neighbourhood = AREA_NA7)
+```
+
+\newpage
+
+```{r}
+by_num <- summary_table %>%
+  arrange(desc(num_restaurants)) %>%
+  slice_head(n = 10) %>%
+  rename(
+    `Neighbourhood` = neighbourhood,
+    `Number of Restaurants` = num_restaurants,
+    `Average Rating` = rating_mean,
+    `Average Review Count` = review_count_mean,
+  )
+
+kable(by_num, digits = 3, caption = "Summary statistics for top 10 neighbourhoods by number of restaurants")
+```
+ 
+Additionally, **Table 2** lists the summary statistics for the top 10 neighbourhoods (with more than 5 restaurants) by average rating, with Alderwood leading at 4.440, followed by Weston and Broadview North. The mapped distribution of average ratings in **[Figure 6 on the website](https://lucieyang1.github.io/toronto-restaurants-analysis/eda-viz.html)** shows no clear spatial clustering for ratings. Comparing the two tables and maps, the neighbourhoods with high average ratings have a lower number of restaurants and lower average review count. This further supports including restaurants as a random effect.
+ 
+```{r}
+by_rating <- summary_table %>% 
+  filter(num_restaurants > 5) %>% 
+  arrange(desc(rating_mean)) %>% 
+  slice_head(n = 10) %>% 
+  rename(
+    `Neighbourhood` = neighbourhood,
+    `Number of Restaurants` = num_restaurants,
+    `Average Rating` = rating_mean,
+    `Average Review Count` = review_count_mean,
+  )
+
+kable(by_rating, digits = 3, caption = "Summary statistics for top 10 neighbourhoods (with more than 5 restaurants) by average rating")
+```
+
+A one-way Analysis of Variance (ANOVA) test on the restaurant ratings by neighbourhood yields a p-value of approximately 0.000 in **Table 3**, indicating that at least one neighbourhood has a statistically significant difference in restaurant rating.
+```{r}
+anova_result <- aov(rating ~ neighbourhood, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "ANOVA results for restaurant ratings across neighborhoods")
+```
+
+### Distribution of Ratings by Other Categorical Variables
+I also investigate potential categorical effects on ratings for the other categorical variables: size level, price level, restaurant type and cuisine type.
+
+```{r sizebox, fig.cap="Distribution of restaurant ratings by size level and price level"}
+sizebox <- restaurants %>% 
+  ggplot(aes(x = size_level, y = rating, fill = size_level)) +
+  geom_boxplot() +
+  labs(
+       title = "Size Level",
+       x = "Size Level",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+
+pricebox <- restaurants %>% 
+  ggplot(aes(x = price_level, y = rating, fill = price_level)) +
+  geom_boxplot() +
+  labs(title = "Price Level",
+       x = "Price Level",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+
+grid.arrange(sizebox, pricebox, ncol = 2)
+```
+
+Looking at the boxplot showing the distribution of restaurant ratings by size level in **Figure 3**, the size of the chain has a negative relationship with median rating, with smaller-size restaurants having higher  ratings on average. All size levels have similar spreads of ratings. A one-way ANOVA test, with results shown in **Table 4** (p-value < 0.001) suggests that at least one size level has a statistically significant difference in rating.
+
+Similarly, the boxplot of ratings by price level also displayed in **Figure 3** suggests that the rating of a restaurant increases with price level, though restaurants with unknown (`NA`) price level have the highest median rating. The spread of ratings also decreases with price level. The one-way ANOVA test in **Table 5** (p-value < 0.001) also indicates that there is a statistically significant difference in at least one price level.
+
+```{r}
+anova_result <- aov(rating ~ size_level, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "ANOVA results for restaurant ratings across size levels")
+```
+
+
+```{r}
+anova_result <- aov(rating ~ price_level, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "ANOVA results for restaurant ratings across price levels")
+```
+
+The boxplot showing the ratings by restaurant type, **Figure 4**, shows that bistros and cafes/bakeries have the highest median ratings, while diners and fast food have the lowest median ratings. Fast food restaurants have the largest spread of ratings. Similar to the other categories, the ANOVA test in **Table 6** indicates that there is at least one statistically significant difference by restaurant type.
+
+```{r typebox, fig.cap="Distribution of restaurant ratings by restaurant type"}
+restaurants %>% 
+  mutate(type = fct_reorder(type, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = type, y = rating, fill = type)) +
+  geom_boxplot() +
+  labs(x = "Restaurant Type",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+```
+
+```{r}
+anova_result <- aov(rating ~ type, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "ANOVA results for restaurant ratings across restaurant types")
+```
+
+The distribution of restaurant ratings by cuisine is plotted in **Figure 5**, which shows international and Middle Eastern cuisines having the highest median ratings, while North American cuisine has the lowest median rating. A one-way ANOVA test, in **Table 7** shows that at least one difference by cuisine is statistically significant.
+
+```{r cuisinebox, fig.cap="Distribution of restaurant ratings by cuisine"}
+restaurants %>% 
+  mutate(cuisine = fct_reorder(cuisine, rating, .fun = median, na.rm = TRUE)) %>% 
+  ggplot(aes(x = cuisine, y = rating, fill = cuisine)) +
+  geom_boxplot() +
+  labs(x = "Cusine",
+       y = "Rating") +
+  theme_light() +
+  coord_flip() +
+  theme(plot.title = element_text(face = "bold"),
+        legend.position = "none")
+```
+
+\newpage
+
+```{r}
+anova_result <- aov(rating ~ cuisine, data = restaurants)
+kable(summary(anova_result)[[1]], digits = 3,
+      caption = "Analysis of Variance (ANOVA) results for restaurant ratings across cuisines")
+```
+
+### Relationships between Rating and Numeric Variables
+For numeric variables, I plot the correlation matrix in **Figure 6**, which shows that distance has a weak negative correlation with rating and review count and suggests that as distance increases, ratings slightly decrease, but the effect is very small. Additionally, there are weak positive correlations between longitude and distance, review count, and latitude. There is a strong positive correlation between latitude and distance, suggesting there is collinearity and only one of latitude or distance should be included in a model. There is no correlation between rating and any of the following variables: review count, latitude, or longitude. 
+
+This is further explored with the scatter plots in **Figure 7**, which do not show any clear trends for distance, review count, longitude, or latitude with rating.
+
+\newpage
+
+```{r fig.height=4, fig.width=4, fig.cap="Pearson correlation matrix for numerical variables: review count, distance, and rating of restaurants"}
+restaurants_num <- restaurants %>% 
+  dplyr::select(rating, distance, review_count, longitude, latitude)
+corr <- round(cor(restaurants_num), 1)
+p.mat <- cor_pmat(restaurants_num)
+ggcorrplot(corr, lab = TRUE, p.mat = p.mat, outline.col = "white")
+```
+
+```{r scatters, fig.cap="Review Count, Distance, Longitude and Latitude vs Rating"}
+review_plot <- restaurants %>% 
+  ggplot(aes(x = review_count, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FF4E50") +
+  labs(title = "Review Count",
+       x = "Review Count",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+distance_plot <- restaurants %>% 
+  ggplot(aes(x = distance, y = rating)) +
+  geom_point(alpha = 0.3, color = "#FC913A") +
+  labs(title = "Distance",
+       x = "Distance",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+longitude_plot <- restaurants %>% 
+  ggplot(aes(x = longitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "lightgreen") +
+  labs(title = "Longitude",
+       x = "Longitude",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+latitude_plot <- restaurants %>% 
+  ggplot(aes(x = latitude, y = rating)) +
+  geom_point(alpha = 0.3, color = "skyblue") +
+  labs(title = "Latitude",
+       x = "Latitude",
+       y = "Rating") +
+  theme_light() +
+  theme(plot.title = element_text(face = "bold"))
+
+grid.arrange(review_plot, distance_plot, longitude_plot, latitude_plot, ncol = 2)
+```
+
+## 3.2 Regression Modelling
+Regression was done on multiple models, including both linear and tree-based models, trained on the train set and the performance was compared using RMSE.
+
+```{r}
+restaurants <- restaurants %>% 
+  mutate(
+    price_level = if_else(is.na(price_level), "Unknown", price_level)) %>% 
+  mutate (
+    price_level = factor(price_level, 
+                         levels = c("Low", "Medium", "High", "Very High", "Unknown")),
+    size_level = factor(size_level, 
+                         levels = c("Single Location", "Small Chain", 
+                                    "Medium Chain", "Large Chain")),
+    type = factor(type),
+    cuisine = factor(cuisine)
+  )
+```
+
+```{r}
+set.seed(9900)
+train <- sample(1:nrow(restaurants), round(0.7 * nrow(restaurants)))
+
+rest_train <- restaurants[train, ]
+rest_test <- restaurants[-train, ]
+```
+
+### Traditional Models
+For simplicity and ease of interpretability, linear models are fit. 
+
+#### Baseline Linear Model
+
+```{r}
+base_lm <- lm(rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level, data = rest_train)
+
+# summary(base_lm)
+```
+
+The resulting estimated coefficients from the linear regression are shown in **Figure 8**. Notably, all of the size levels have statistically significant effects at the 0.05 significance level. For example, large chains have a 0.921 lower rating than single location restaurants on average. Moreover, two of the price levels have statistically significant effects: Very High and Unknown, compared to the baseline level of Low. Review count also has small, but statistically significant effect. The Variance Inflation Factor (VIF) was calculated for each predictor, as shown in **Table 8**. Since no values are greater than 5, this indicates minimal multicollinearity, despite the previously found correlation. However, most variables are not statistically significant, and the adjusted R-squared is **0.187**, suggesting that the model explains a small proportion of the variation in the data. 
+
+```{r basecoef, fig.width = 10, fig.height = 6, fig.cap="Coefficients and their 95% confidence interval for the baseline linear model"}
+base_lm_coef <- tidy(base_lm, conf.int = TRUE)
+base_lm_coef <- base_lm_coef[base_lm_coef$term != "(Intercept)", ]
+base_lm_coef <- base_lm_coef %>%
+  mutate(group = case_when(
+    grepl("cuisine", term)     ~ "Cuisine",
+    grepl("type", term)        ~ "Type",
+    grepl("price_level", term) ~ "Price Level",
+    grepl("size_level", term)  ~ "Size Level",
+    TRUE                       ~ "Other"
+  ))
+base_lm_coef$group <- factor(
+  base_lm_coef$group,
+  levels = c("Cuisine", "Type", "Price Level", "Size Level", "Other")
+)
+
+ggplot(base_lm_coef, aes(x = estimate, y = reorder(term, estimate), color = group)) +
+  facet_wrap(~group, scales = "free_y", ncol = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  labs(x = "Coefficient Estimate", y = "Predictor") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+\newpage
+
+```{r}
+kable(vif(base_lm), digits = 3, caption = "Variance Inflation Factor (VIF) for each predictor in the baseline linear model")
+```
+
+#### Automated Selection
+
+The selected model from automated selection is as follows:
+$$
+\text{rating} \sim \text{price\_level} + \text{review\_count} + \text{type} + \text{cuisine} + \text{size\_level}
+$$
+
+```{r, include=FALSE}
+auto_lm <- stepAIC(base_lm, direction = "both", k = 2)
+
+# summary(auto_lm)
+```
+
+Notably, the location-related variables (longitude, latitude, and distance) were removed, suggesting that they are not as important for predicting rating. The estimated coefficients are shown in **Figure 9**, with very similar results to the baseline model: price level, review count and size level are statistically significant, whereas only one cuisine and a few types are statistically significant. The adjusted R-squared is also very similar, at **0.188**, suggesting that this model has a marginally better fit than the baseline linear model.
+
+```{r autocoef, fig.width = 10, fig.height = 6, fig.cap="Coefficients and their 95% confidence interval for the automated linear model"}
+auto_lm_coef <- tidy(auto_lm, conf.int = TRUE)
+auto_lm_coef <- auto_lm_coef[auto_lm_coef$term != "(Intercept)", ]
+auto_lm_coef <- auto_lm_coef %>%
+  mutate(group = case_when(
+    grepl("cuisine", term)     ~ "Cuisine",
+    grepl("type", term)        ~ "Type",
+    grepl("price_level", term) ~ "Price Level",
+    grepl("size_level", term)  ~ "Size Level",
+    TRUE                       ~ "Other"
+  ))
+auto_lm_coef$group <- factor(
+  auto_lm_coef$group,
+  levels = c("Cuisine", "Type", "Price Level", "Size Level", "Other")
+)
+
+ggplot(auto_lm_coef, aes(x = estimate, y = reorder(term, estimate), color = group)) +
+  facet_wrap(~group, scales = "free_y", ncol = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  labs(x = "Coefficient Estimate", y = "Predictor") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+#### GLMM with neighbourhood random effect
+Based on the exploratory data analysis, neighbourhood can be treated as a random effect. 
+
+```{r}
+rest_train$neighbourhood <- as.factor(rest_train$neighbourhood)
+neigh_glmm <- glmmTMB(rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level 
+                + (1|neighbourhood), 
+                data = rest_train, family = gaussian(link = "identity"))
+
+# summary(neigh_glmm)
+```
+
+The variance of neighborhood in the GLMM was calculated to be **0.013**, suggesting that ratings differ moderately between neighbourhoods. However, there is residual variance of 0.340, suggesting that the model still fails to capture a large proportion of the variation in ratings between restaurants. The estimated coefficients vary slightly, but are generally very similar to the linear models.
+
+
+### Tree-based Models
+Given that the relationships between some variables did not seem linear in the exploratory data analysis, I fit some tree-based models, which can capture non-linear trends.
+
+#### Regression Tree
+A regression tree was fit using all predictors, excluding neighbourhood using 10-fold cross-validation. The tree was then pruned using the complexity parameter. The resulting tree is plotted in **Figure 10**, showing a top split of size level, followed by price level.
+
+```{r}
+set.seed(999)
+rest_tree <- rpart(
+  rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level, 
+  data = rest_train, 
+  method = "anova", 
+  control = list(
+    minsplit = 10, 
+    minbucket = 3,
+    cp = 0,
+    xval = 10
+  )
+)
+```
+
+```{r regtree, fig.cap="Regression tree for restaurant ratings"}
+optimalcp = rest_tree$cptable[which.min(rest_tree$cptable[,"xerror"]), "CP"]
+rest_tree_prune <- prune(rest_tree, cp = optimalcp)
+rpart.plot(rest_tree_prune,
+           type = 1,                
+           fallen.leaves = TRUE,  
+           faclen = 4,
+           cex = 0.6,
+           tweak = 1.5)
+```
+
+#### Random Forest
+A regression random forest was also fit using all predictors, excluding neighbourhood, using 1000 trees. The resulting variable importances in **Figure 11** suggest that latitude is the most important variable, followed by longitude and distance. The least important variables are price level and type.
+
+```{r}
+set.seed(999)
+rest_rf <- randomForest(
+  rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level,
+  data = rest_train,
+  na.action = na.omit,
+  ntree = 1000
+)
+```
+
+#### Gradient Boosting
+Gradient boosting regression models were fit using all predictors, excluding neighbourhood, using 1000 trees and 5-fold cross validation. Shrinkage values of 0.001, 0.01 and 0.1, and interaction depths of 1, 2, 3, and 4 were tried. The optimal shrinkage parameter was determined to be 0.01 and the optimal interaction depth was 3, based on the shape of the cross validation error curve over boosting iterations. This is because it reached a plateau, suggesting it was not overfitting nor underfitting. The variable importances in **Figure 11** suggest that size level and price level are the most important variables, and longitude and distance are the least important variables.
+
+```{r}
+set.seed(999)
+rest_boost0.01 = gbm(
+  rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level,
+  data = rest_train,
+  distribution = "gaussian", # since rating is continuous!
+  n.trees = 1000,
+  interaction.depth = 3,
+  shrinkage = 0.01, # change shrinkage (0.001, 0.01, 0.1)
+  cv.folds = 5)
+```
+
+```{r, include=FALSE}
+plot(rest_boost0.01$train.error, col = "red4",
+     type = "l", lwd = 3, ylab = "Error", 
+     main = "Training Error vs. Cross-Validation Error Across Boosting Iterations")
+lines(rest_boost0.01$cv.error, col = "steelblue", lwd = 3)
+legend("topright", legend = c("Training Error", "CV Error"), 
+       col = c("red4", "steelblue"), lwd = 3, bty = "n")
+```
+
+#### XGBoost
+Parallel processing with 8 cores was used to perform 10-fold cross validation and grid search for an XGBoost regression model using `caret` with all predictors (excluding neighbourhood). The model was tuned over a grid of hyperparameters: maximum depth (1, 3, 5, 7), number of rounds (50 to 500 in steps of 50), and learning rate (0.01, 0.1, 0.3). The optimal hyperparameters was determined to be 500 rounds, a learning rate of 0.01 and a maxmimum depth of 5.
+
+```{r}
+cl <- makePSOCKcluster(8) 
+registerDoParallel(cl)
+
+train_control <- trainControl(method = "cv", number = 10, search ="grid",
+                              allowParallel = TRUE)
+
+tune_grid <-  expand.grid(max_depth = c(1, 3, 5, 7), 
+                        nrounds = (1:10)*50, 
+                        eta = c(0.01,0.1,0.3), 
+                        gamma = 0, 
+                        subsample = 1,
+                        min_child_weight = 1,
+                        colsample_bytree = 0.6 
+                        )
+
+rest_xgb <- caret::train(
+  rating ~ distance + longitude + latitude + price_level + 
+                review_count + type + cuisine + size_level,
+  data = rest_train,
+  method="xgbTree",
+  trControl = train_control,
+  tuneGrid = tune_grid,
+  na.action = na.exclude,
+  verbosity = 0)
+
+stopCluster(cl)
+
+# best hyperparameters
+# rest_xgb$bestTune
+```
+
+
+```{r rf, fig.cap = "Variable importance plots for random forest, boost, and XGBoost models"}
+# Random forest
+imp <- importance(rest_rf)
+imp_df <- data.frame(Variable = rownames(imp), Importance = imp[, 1])
+
+rf_imp <- ggplot(imp_df, aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "lightgreen") +
+  coord_flip() +
+  labs(title = "Random Forest", x = "Variables", y = "Increase in\nNode Purity") +
+  theme_light()
+
+# Boosting
+imp_boost <- summary(rest_boost0.01, plotit = FALSE)
+imp_df_boost <- data.frame(Variable = imp_boost$var, Importance = imp_boost$rel.inf)
+
+boost_imp <- ggplot(imp_df_boost, aes(x = reorder(Variable, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  coord_flip() + 
+  labs(title = "Boosting", x = "Variables", y = "Relative Influence") +
+  theme_light() 
+
+# XGBoost
+varimp <- varImp(rest_xgb, scale = FALSE)
+xgb_imp_df <- varimp$importance
+xgb_imp_df$Feature <- rownames(xgb_imp_df)
+xgb_imp_df$Feature <- gsub("size_level.*", "size_level", xgb_imp_df$Feature)
+xgb_imp_df$Feature <- gsub("price_level.*", "price_level", xgb_imp_df$Feature)
+xgb_imp_df$Feature <- gsub("cuisine.*", "cuisine", xgb_imp_df$Feature)
+xgb_imp_df$Feature <- gsub("type.*", "type", xgb_imp_df$Feature)
+
+xgb_imp_df <- xgb_imp_df %>%
+  group_by(Feature) %>%
+  summarise(Overall = sum(Overall)) %>%
+  ungroup() %>%
+  arrange(Overall) %>%
+  mutate(Feature = factor(Feature, levels = Feature))
+
+xgb_imp <- ggplot(xgb_imp_df, aes(x = Feature, y = Overall)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(title = "XGBoost", x = "Feature", y = "Importance") +
+  theme_light()
+
+grid.arrange(rf_imp, boost_imp, xgb_imp, ncol = 3)
+```
+
+### Comparison
+
+Then, I use each of the models to make predictions on both the train and test set and calculate their RMSE values in **Table 9**. The random forest model has the lowest train RMSE, but the highest test RMSE, suggesting that it may be overfitting to the train data. The model with the lowest test RMSE is the Boosting model, and is hence chosen as the best model.
+
+```{r}
+# make predictions from each model on the train set
+yhat_lmbase_tr <- predict(base_lm, newdata = rest_train)
+yhat_autolm_tr <- predict(auto_lm, newdata = rest_train)
+yhat_glmm_tr <- predict(neigh_glmm, newdata = rest_train)
+yhat_regtree_tr <- predict(rest_tree_prune, newdata = rest_train)
+yhat_rf_tr <- predict(rest_rf, newdata = rest_train)
+yhat_boost_tr <- predict(rest_boost0.01, newdata = rest_train)
+yhat_xgb_tr <- predict(rest_xgb, newdata = rest_train)
+```
+
+```{r}
+# make predictions from each model on the test set
+yhat_lmbase <- predict(base_lm, newdata = rest_test)
+yhat_autolm <- predict(auto_lm, newdata = rest_test)
+yhat_glmm <- predict(neigh_glmm, newdata = rest_test)
+yhat_regtree <- predict(rest_tree_prune, newdata = rest_test)
+yhat_rf <- predict(rest_rf, newdata = rest_test)
+yhat_boost <- predict(rest_boost0.01, newdata = rest_test)
+yhat_xgb <- predict(rest_xgb, newdata = rest_test)
+```
+
+```{r}
+RMSE_table <- data.frame(
+  Method = c(
+    "Linear Regression",
+    "Auto Lin Reg",
+    "GLMM",
+    "Regression Tree",
+    "Random Forest",
+    "Boosting",
+    "XGBoost"
+  ),
+  `Train RMSE` = c(
+    sqrt(mean((yhat_lmbase_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_autolm_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_glmm_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_regtree_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_rf_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_boost_tr - rest_train$rating)^2)),
+    sqrt(mean((yhat_xgb_tr - rest_train$rating)^2))
+  ),
+  `Test RMSE` = c(
+    sqrt(mean((yhat_lmbase - rest_test$rating)^2)),
+    sqrt(mean((yhat_autolm - rest_test$rating)^2)),
+    sqrt(mean((yhat_glmm - rest_test$rating)^2)),
+    sqrt(mean((yhat_regtree - rest_test$rating)^2)),
+    sqrt(mean((yhat_rf - rest_test$rating)^2)),
+    sqrt(mean((yhat_boost - rest_test$rating)^2)),
+    sqrt(mean((yhat_xgb - rest_test$rating)^2))
+  ),
+  check.names = FALSE
+)
+
+RMSE_table <- RMSE_table %>%
+  mutate(
+    `Train RMSE` = ifelse(
+      `Train RMSE` == min(`Train RMSE`),
+      paste0("**", round(`Train RMSE`, 3), "**"),
+      round(`Train RMSE`, 3)
+    ),
+    `Test RMSE` = ifelse(
+      `Test RMSE` == min(`Test RMSE`),
+      paste0("**", round(`Test RMSE`, 3), "**"),
+      round(`Test RMSE`, 3)
+    )
+  )
+
+kable(RMSE_table, digits = 3, caption = "RMSE Comparison Across Methods")
+```
+
+# Conclusion
+
+From the linear models, the results suggest that size level has a significant effect on restaurant ratings: as the size increases (ie. larger chains), the restaurant ratings decrease on average. Moreover, the price level also has a significant effect on restaurant ratings, with high priced restaurants having higher ratings than low priced restaurants. Review count also has a significant effect, with restaurants with more reviews having higher ratings on average. Moreover, neighbourhoods have a statistically significant random effect. Overall, size level has the largest effect.
+
+Based on the variable importances, the size and price levels of the restaurant are the most important factors for both boosting and XGBoost models. Moreover, latitude is the most important for the random forest model and third for the XGBoost model. Overall, this suggests that these variables are the most important factors in determining restaurant rating. Restaurant type has the second lowest importance in the random forest, and the lowest importance in XGBoost. However, there is pretty significant disagreement in the importances between the models, so interpretations on the importances are not very strong.
+
+These results support the hypothesis. However, other variables such as distance, cuisine, and type did not have statistically significant effects or importances in any of the models.
+
+Overall, the highest performing model is the Gradient Boosting model, with a test RMSE of 0.626. This means that on average, the model's predicted rating are off by 0.626 units from the actual observed rating. Since the rating of a restaurant only ranges from 1 to 5, a RMSE of 0.626 suggests that while the model accounted for some factors influencing rating, there are other factors that the model has not accounted for and that the prediction is not very accurate.
+
+# Limitations
+
+This analysis was heavily limited by the data. Restaurant type and cuisine did not have highly significant effects or importance in any model; however, this could be because both variables had a high number of unknown values. Therefore, to improve this analysis, better data with this information should be collected. Moreover, since the data is user-generated, the results may be skewed due to sampling bias. For example, people may not rate casual restaurants or fast food restaurants, or only rate restaurants that they have an exceptionally good or bad experience at.
+
+From a statistical perspective, the models treated ratings as an unlimited continuous variable, but given that ratings are confined to a 1-5 scale, they may have been better modeled as a Beta-distributed variable. This presents an opportunity for further exploration. Additionally, while neighbourhood was included as a random effect in one of the models, further investigation could explore variations in ratings by comparing neighbourhoods with other factors, such as income or age distribution, to uncover underlying patterns.
+
+\newpage 
+
+# References
+
+
+
+
