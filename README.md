@@ -15,4 +15,4 @@ The dataset used for this analysis was from the [Yelp Fusion API](https://busine
 ## Resources
 The website can be accessed at: https://lucieyang1.github.io/toronto-restaurants-analysis/
 
-The full report is available at: TODO
+The full report is available at: [reports/final_report.pdf](reports/final_report.pdf)
